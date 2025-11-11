@@ -1,0 +1,42 @@
+#Jonathan Borowsky
+#Grabe lab
+#11/10/25
+
+software outline
+
+in testing_v1.py:
+    system = energy_landscapes.system###()
+    method_file.sampler_method(system, hyperparameters, simulation_length)
+   
+in method_file.py:
+    sampler_method(system, hyperparameters, simulation_length):
+        initialize variables and initial state for sampling method
+        utility_v1.run_for_n_timepoints(analysis_method, params, initial_state, n_timepoints)
+        return observables over time
+
+in utility_v1.py:
+    utility_v1.run_for_n_timepoints(analysis_method, params, initial_state, n_timepoints):
+        run the sampling/analysis method (analysis_method) in several (n_timepoints) sequential...
+        ...pieces and save observables computed from the cumulative trajectory up to each point
+
+in method_file.py:
+    analysis_method(method_state, params):
+        extend sampling method starting from method_state and using params (which includes the timepoint)
+        add new trajectories to the existing ones (found in method_state) and compute observables for the cumulative trajectory
+        return the new method state and the observables
+
+    
+
+##########################    misc notes    #########################################
+
+#TODO: we need to add a way to model methods that serially use a single core to mimic parallel computations (i.e. if you tried to run WESTPA on one GPU core)
+#this is relevant for cases where the total number of GPUs is the limiting factor (see below)
+
+#hardware/real world objects:
+# GPUs, wall clock hours, aggregate GPU hours
+#if we're trying to model a commercial cluster where we can buy as many gpus as we want at any one time but have to pay per GPU hour, wall clock time and aggregate GPU hours are the relevant metrics
+#if we're trying to model a lab cluster where we have a fixed number of GPUs and a fixed amount of time to publish and graduate, wall clock time and the number of GPUs are the relevant metrics
+
+#simulation parameters (both are maximum values):
+# aggregate simulation time, maximum molecular time
+# AKA (how much the simulation costs, how much time it adds to your PhD)
