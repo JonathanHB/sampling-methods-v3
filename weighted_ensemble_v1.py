@@ -93,15 +93,15 @@ def weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, en
 #   TODO define a fancier version that uses a metadynamics grid
 class we_propagator_1():
     
-    def __init__(self, system_dtmsm, kT, timestep, nsteps):
-        self.system_dtmsm = system_dtmsm
+    def __init__(self, system, kT, timestep, nsteps):
+        self.system = system
         self.kT = kT
         self.timestep = timestep
         self.nsteps = nsteps
         #self.save_period = save_period
     
     def propagate(self, x, w):
-        return (propagators_v1.propagate_save1(self.system_dtmsm, self.kT, x, self.timestep, self.nsteps, self.nsteps))
+        return (propagators_v1.propagate_save1(self.system, self.kT, x, self.timestep, self.nsteps))
     
     def mtd_grid(self):
         return None
