@@ -20,7 +20,7 @@ class potential_well_1d():
 
     def __init__(self, potential, macro_class, standard_analysis_range):
         self.potentiall = potential
-        self.macro_classs = macro_class
+        self.macro_classs = macro_class #maybe not the best variable name
         self.standard_analysis_rangee = standard_analysis_range #is this actually necessary??
 
     #determine which ensemble a trajectory currently ensemble e should be in upon moving to coordinate x
@@ -30,7 +30,10 @@ class potential_well_1d():
             return ms
         else:
             return e
-
+        
+    def macro_class_parallel(self, x):
+        return [self.macro_classs(xi) for xi in x]
+    
     #calculate equilibrium populations and energies for a given set of bins
     # by assuming energy is roughly constant across each bin
     # This is a good approximation for most systems; 

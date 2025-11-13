@@ -14,7 +14,10 @@ def run_for_n_timepoints(analysis_method, params, initial_state, n_timepoints):
     method_output = []
 
     for t in range(n_timepoints):
-        method_state, observable = analysis_method(method_state, params)
+        method_state, observable, stopflag = analysis_method(method_state, params)
         method_output.append(observable)
+        if stopflag:
+            print("method halted by exceeding aggregate simulation limit")
+            break
 
     return method_output

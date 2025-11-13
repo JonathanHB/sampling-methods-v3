@@ -8,9 +8,134 @@ import numpy as np
 import sys
 import random
 from collections import Counter
+import matplotlib.pyplot as plt
 
 import propagators_v1
 import utility_v1
+import MSM_methods
+
+
+###################################################################################################
+#                                      MERGING AND SPLITTING
+
+#split and merge walkers to ensure that each bin has the target number of walkers
+#parameters
+# w = walker weights
+# b = walker bins (either configurational or history augmented depending on the choice of binner)
+# walkerdata_no_b = a tuple of walker-level parameters other than the weights and bins
+# walkers_per_bin = target number of walkers per bin
+#returns
+# a tuple of weights, bins, and the other walker parameters from walkerdata_no_b, for the new set of split/merged walkers
+
+def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
+
+    #a list of length n_total_walkers
+    #using numpy transposition here would not work because the coordinates are themselves arrays while other attributes are scalars
+    walkerdata = [list(row) for row in zip(*walkerdata_transposed)]
+    split_limit = 2.00001*sys.float_info.min #keep weights from going to 0
+    #print(f"bins: {b}")
+    inds_by_bin = [[] for _ in range(max(b)+1)]  #list of lists; each sublist contains the indices of walkers in the corresponding bin
+    for walker_ind, bin_ind in enumerate(b):
+        inds_by_bin[bin_ind].append(walker_ind)
+
+    # if r%round(nrounds/10) == 0:
+    #     plt.scatter([bincenters_flat], [len(i) for i in inds_by_bin])
+    #     plt.show()
+    #     print(f"bins_with_1_walker: {[iii for iii, l in enumerate([len(i) for i in inds_by_bin]) if l == 1]}")
+    
+    # weights and other walker information for each walker produced by the splitting/merging process (including unaltered ones)
+    w_out = []
+    walkerdata_out = []
+
+    for isi, indset in enumerate(inds_by_bin):
+        
+        #continue simulations in bins with the right population
+        if len(indset) == walkers_per_bin:
+            for i in indset:
+                walkerdata_out.append(walkerdata[i])
+                w_out.append(w[i])
+            
+
+        #duplicate simulations in bins with too few walkers
+        elif len(indset) < walkers_per_bin and len(indset) > 0:
+
+            #select walkers to duplicate
+            w_indset = [w[i] for i in indset]
+
+            duplicated_walkers = random.choices(indset, weights=w_indset, k = walkers_per_bin-len(indset))
+            
+            #add coordinates and weights of walkers from this bin to the list for next round
+            # coordinates are unchanged for duplicated walkers; weights are reduced
+            for i in indset:
+                #add multiple copies of walkers to be duplicated with proportionally smaller weights
+                for j in range(1+duplicated_walkers.count(i)):
+                    walkerdata_out.append(walkerdata[i])
+
+                    if w[i] >= split_limit:
+                        #this is the normal WE algorithm
+                        w_out.append(w[i]/(1+duplicated_walkers.count(i)))
+                    else:
+                        w_out.append(w[i])
+                        break #do not duplicate too-light walkers
+
+
+        #merge simulations in bins with too many walkers
+        elif len(indset) > walkers_per_bin:
+            merge_threshold = 0.05
+
+            #total bin weight; does not change because merging operations preserve weight
+            w_bin = sum([w[i] for i in indset])
+        
+            #deepcopy; may be unnecessary
+            local_indset = [i for i in indset]
+            w_local_indset = [w[i] for i in indset]
+
+            #remove walkers until only walkers_per_bin remain
+            for i in range(len(indset)-walkers_per_bin):
+                
+                #weights for walker elimination from Huber and Kim 1996 appendix A
+                w_removal = [(w_bin - w[i])/w_bin for i in local_indset]
+
+                #-------------------------------------experimental--------------------------------------------------
+                # w_removal_masked = [wr if wli < merge_threshold else 0 for wli, wr in zip(w_local_indset, w_removal)]
+                # if sum(w_removal_masked) == 0:
+                #     print(w_local_indset)
+                #     continue
+                #---------------------------------------------------------------------------------------
+
+                #pick 1 walker to remove, most likely one with a low weight
+                #the [0] eliminates an unnecessary list layer
+                removed_walker = random.choices([j for j in range(len(local_indset))], weights=w_removal, k = 1)[0]
+                
+                #remove the walker
+                local_indset = [i for ii, i in enumerate(local_indset) if ii != removed_walker]
+                removed_weight = w_local_indset[removed_walker]
+                w_local_indset = [i for ii, i in enumerate(w_local_indset) if ii != removed_walker]
+                
+                #pick another walker to gain the removed walker's probability
+                #selection chance is proportional to existing weight
+                #-------------------------------------experimental--------------------------------------------------
+                # w_local_indset_masked = [wli if wli < merge_threshold else 0 for wli in w_local_indset]
+                # # if w_local_indset != w_local_indset_masked:
+                # #     print(w_local_indset)
+                # #     print(w_local_indset_masked)
+                # if sum(w_local_indset_masked) == 0:
+                #     print(w_local_indset)
+                #     continue
+                #---------------------------------------------------------------------------------------
+
+                recipient_walker = random.choices([j for j in range(len(local_indset))], weights=w_local_indset, k = 1)[0]
+                w_local_indset[recipient_walker] += removed_weight
+
+            for i in range(walkers_per_bin):
+                walkerdata_out.append(walkerdata[local_indset[i]])
+                w_out.append(w_local_indset[i])
+
+
+    return [w_out] + [np.stack([wdi[0] for wdi in walkerdata_out])] + [[wdi[i] for wdi in walkerdata_out] for i in range(1,len(walkerdata_out[0]))]
+
+
+
 
 #PARAMETERS
 # x, e, w, cb, and b are all lists or arrays of length equal to the number of walkers at the start of the WE round
@@ -64,23 +189,35 @@ def weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, en
         e_last = e.copy()
         cb_last = cb.copy()
         b_last = b.copy()
-        #print("------------before------------")
-        #print(x)
-        #print("------------------------------")
-        r, x_md = propagator.propagate(x, w)           #propagate dynamics. es_args can be used to alter propagator function, i.e. changing the energy landscape in metadynamics
-        #print(x_md)
-        #print("------------after-------------")
-                                                    #w is only passed in because it will be used to update metadynamics grids
+        # print("------------before------------")
+        # print(x)
+        # print("------------------------------")
+        #beware that this propagator modifies x in place
+        x_md = propagator.propagate(x, w)           #propagate dynamics. es_args can be used to alter propagator function, i.e. changing the energy landscape in metadynamics
+        # print(x_md)
+        # print(x)
+        # print(x_last)
+        # print("------------after-------------")
+        #sys.exit(0)                                            #w is only passed in because it will be used to update metadynamics grids
         #es_args = es_updater(es_args, x_md, w)     #calculate new enhanced sampling arguments based on the propagated coordinates and the current weights (i.e. add to the MTD grid) #now inside propagator
         cb_md = config_binner.bin(x_md)             #calculate configurational bins
-        e_md = ensemble_classifier.ensemble(cb_md, e_last)   #determine which ensemble each walker belongs to based on the new coordinates or configurational bins and the last ensembles. This need not use both x_md and cb_md.
+        e_md = ensemble_classifier.ensemble(x_md, e_last)   #determine which ensemble each walker belongs to based on the new coordinates or configurational bins and the last ensembles. This need not use both x_md and cb_md.
         b_md = binner.bin(cb_md, e_md)              #determine which bin each walker belongs to based on the new coordinates or configurational bins and its current ensemble. This need not use both x_md and cb_md. 
                                                     # for non-history-augmented binning schemes e is unused and this simply returns the configurational bin
         observables.append(calc_observables(x_last, x_md, e_last, e_md, w, cb_last, cb_md, b_last, b_md, propagator)) #calculate MSM transitions, total bin occupancies, or whatever other observables are desired
 
-        (w, b, x, e, cb) = split_merge(w, b_md, (x_md, e_md, cb_md), walkers_per_bin) #split and merge trajectories
+        # print(f"  total weight check: {min(w)}")
+        # if r == 0:
+        #     #plt.hist([np.log(wi) for wi in w], bins=32)
+        #     #plt.hist(x, weights=w, bins=62)
+        #     plt.hist(x)
+        #     plt.show()
+
+        (w, x, e, b, cb) = split_merge(w, b_md, (x_md, e_md, b_md, cb_md), walkers_per_bin) #split and merge trajectories
 
     return x, e, w, cb, b, propagator, observables  #return the final coordinates, ensembles, weights, and observables
+
+
 
 
 ###################################################################################################
@@ -116,13 +253,14 @@ class we_propagator_1():
 # and having this as its own method provides a modular way to implement such schemes 
 class config_binner_1():
     
-    def __init__(self, binbounds, msm_states):
+    def __init__(self, binbounds):
         self.binbounds = binbounds
-        self.msm_states = msm_states
-        self.n_bins = np.product([len(bbd)+1 for bbd in binbounds])
+        self.n_bins = len(binbounds)+1
+        # self.n_bins = np.product([len(bbd)+1 for bbd in binbounds])
     
     def bin(self, x):
-        return utility_v1.binner_1d(self.binbounds, self.msm_states, x)
+        return np.digitize(x, self.binbounds).flatten()
+        #utility_v1.binner_1d(self.binbounds, x)
     
 
 #determine which ensemble a trajectory currently in ensemble e should be in upon moving to coordinate or state x
@@ -134,9 +272,9 @@ class ensemble_classifier_1():
     def __init__(self, macrostate_classifier):
         self.macrostate_classifier = macrostate_classifier
 
-    def ensemble(self, b, e):
+    def ensemble(self, x, e):
         #determine which ensemble a trajectory currently in ensemble e should be in upon moving to coordinate or state x
-        macrostates = self.macrostate_classifier(b)
+        macrostates = self.macrostate_classifier(x)
         ensembles = np.where(macrostates == -1, e, macrostates)  #if the macrostate is not -1, use it; otherwise use the current ensemble
         return ensembles
 
@@ -163,119 +301,17 @@ class binner_2():
 #note that the _md variable suffix is not preserved here
 def calc_observables_1(x_last, x, e_last, e, w, cb_last, cb, b_last, b, propagator):
     #for histogram methods
-    cb_transitions = np.stack((cb_last, cb))
-    bin_transitions = np.stack((b_last, b))
-
-    #for Markov state models
     trj_config_weighted = np.stack((cb, w))
     trj_weighted = np.stack((b, w))
+
+    #for Markov state models
+    cb_transitions = np.stack((cb_last, cb))
+    bin_transitions = np.stack((b_last, b))
 
     #for metadynamics
     mtd_weights = propagator.mtd_grid()  #get the metadynamics grid if it exists (otherwise None)
 
-    return (trj_config_weighted, trj_weighted, cb_transitions, bin_transitions, mtd_weights)
-
-
-###################################################################################################
-#                                      MERGING AND SPLITTING
-
-#split and merge walkers to ensure that each bin has the target number of walkers
-#parameters
-# w = walker weights
-# b = walker bins (either configurational or history augmented depending on the choice of binner)
-# walkerdata_no_b = a tuple of walker-level parameters other than the weights and bins
-# walkers_per_bin = target number of walkers per bin
-#returns
-# a tuple of weights, bins, and the other walker parameters from walkerdata_no_b, for the new set of split/merged walkers
-
-def split_merge(w, b, walkerdata_no_b, walkers_per_bin):
-
-    #a list of length n_total_walkers
-    walkerdata = [(bi)+(walkerdata_no_b_i) for bi, walkerdata_no_b_i in zip(b, walkerdata_no_b)]  #add bin index to each walker's data
-
-    split_limit = 2.00001*sys.float_info.min #keep weights from going to 0
-    print(f"bins: {b}")
-    inds_by_bin = [[] for _ in range(max(b)+1)]  #list of lists; each sublist contains the indices of walkers in the corresponding bin
-    for walker_ind, bin_ind in enumerate(b):
-        inds_by_bin[bin_ind].append(walker_ind)
-
-    # if r%round(nrounds/10) == 0:
-    #     plt.scatter([bincenters_flat], [len(i) for i in inds_by_bin])
-    #     plt.show()
-    #     print(f"bins_with_1_walker: {[iii for iii, l in enumerate([len(i) for i in inds_by_bin]) if l == 1]}")
-    
-    # weights and other walker information for each walker produced by the splitting/merging process (including unaltered ones)
-    w_out = []
-    walkerdata_out = []
-
-    for isi, indset in enumerate(inds_by_bin):
-        
-        #continue simulations in bins with the right population
-        if len(indset) == walkers_per_bin:
-            for i in indset:
-                walkerdata_out.append(walkerdata[i])
-                w_out.append(w[i])
-            
-        #duplicate simulations in bins with too few walkers
-        elif len(indset) < walkers_per_bin and len(indset) > 0:
-
-            #select walkers to duplicate
-            w_indset = [w[i] for i in indset]
-
-            duplicated_walkers = random.choices(indset, weights=w_indset, k = walkers_per_bin-len(indset))
-            
-            #add coordinates and weights of walkers from this bin to the list for next round
-            # coordinates are unchanged for duplicated walkers; weights are reduced
-            for i in indset:
-                #add multiple copies of walkers to be duplicated with proportionally smaller weights
-                for j in range(1+duplicated_walkers.count(i)):
-                    walkerdata_out.append(walkerdata[i])
-
-                    if w[i] >= split_limit:
-                        #this is the normal WE algorithm
-                        w_out.append(w[i]/(1+duplicated_walkers.count(i)))
-                    else:
-                        w_out.append(w[i])
-                        break #do not duplicate too-light walkers
-
-                        
-        #merge simulations in bins with too many walkers
-        elif len(indset) > walkers_per_bin:
-            #instead of doing what's below just merge the two lightest walkers to prevent probability from accumulating in heavier ones
-            
-            #total bin weight; does not change because merging operations preserve weight
-            w_bin = sum([w[i] for i in indset])
-        
-            #deepcopy; may be unnecessary
-            local_indset = [i for i in indset]
-            w_local_indset = [w[i] for i in indset]
-
-            #remove walkers until only walkers_per_bin remain
-            for i in range(len(indset)-walkers_per_bin):
-                
-                #weights for walker elimination from Huber and Kim 1996 appendix A
-                w_removal = [(w_bin - w[i])/w_bin for i in local_indset]
-                
-                #pick 1 walker to remove, most likely one with a low weight
-                #the [0] eliminates an unnecessary list layer
-                removed_walker = random.choices([j for j in range(len(local_indset))], weights=w_removal, k = 1)[0]
-                
-                #remove the walker
-                local_indset = [i for ii, i in enumerate(local_indset) if ii != removed_walker]
-                removed_weight = w_local_indset[removed_walker]
-                w_local_indset = [i for ii, i in enumerate(w_local_indset) if ii != removed_walker]
-                
-                #pick another walker to gain the removed walker's probability
-                #selection chance is proportional to existing weight
-                recipient_walker = random.choices([j for j in range(len(local_indset))], weights=w_local_indset, k = 1)[0]
-                w_local_indset[recipient_walker] += removed_weight
-
-            for i in range(walkers_per_bin):
-                walkerdata_out.append(walkerdata[local_indset[i]])
-                w_out.append(w_local_indset[i])
-
-    return [w_out] + [[wdi[i] for wdi in walkerdata_out] for i in range(len(walkerdata_out[0]))]
-
+    return (trj_config_weighted, trj_weighted, cb_transitions, bin_transitions, mtd_weights, len(w))
 
 
 #VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV copied from msm_trj_long_simulation.py; refactoring pending VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
@@ -283,107 +319,85 @@ def split_merge(w, b, walkerdata_no_b, walkers_per_bin):
 #a wrapper for running weighted ensemble in segments and feeding them through msm_trj_analysis.run_for_n_timepoints()
 def we_histogram(state, params):
     #unpack inputs
-    x, e, w, cb, b, propagator, cumulative_observables = state
-    split_merge, config_binner, ensemble_classifier, binner, calc_observables, nrounds, walkers_per_bin = params
+    x, e, w, cb, b, propagator, cumulative_observables, cumulative_agg_t = state
+    split_merge, config_binner, ensemble_classifier, binner, calc_observables, nrounds, walkers_per_bin, aggregate_simulation_limit = params
 
     #run dynamics
     x, e, w, cb, b, propagator, new_observables = weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, ensemble_classifier, binner, calc_observables, nrounds, walkers_per_bin)
-    #resume_parallel_simulations_msm(propagators.propagate_msm, system, kT, dt, nsteps, save_period, long_trjs, long_trj_inds)
 
-    observables = cumulative_observables+[new_observables]
+    #update cumulative observables and aggregate time
+    observables = cumulative_observables+new_observables
+    cumulative_agg_t += sum([nobs[-1] for nobs in new_observables])*propagator.nsteps
 
     #actual state populations
-    #bin all the msm states and then add up the equilibrium probabilities of all the states in each bin
-    state_bins = msm_trj_analysis.bin_to_voxels_msmstates(config_binner.binbounds, propagator.system.x)
-    bin_pops = msm_trj_analysis.state_to_bin_populations(state_bins, propagator.system.p)
+    bin_pops, energies_norm = propagator.system.normalized_pops_energies(propagator.kT, config_binner.binbounds)
 
-    #estimated state populations
-    cumulative_config_bins = np.stack([o[0] for o in observables], axis = 1).transpose()
-    print(cumulative_config_bins.shape)
+
+    #----------------------------histogram-based population estimation----------------------------#
+
+    #estimate state populations
+    cumulative_config_bins = np.concatenate([o[0] for o in observables], axis = 1).transpose()
 
     est_bin_pops = np.zeros(config_binner.n_bins)  #initialize estimated bin populations to 0
     for cbi in cumulative_config_bins:
-        est_bin_pops[cbi[0]] += cbi[1]
+        est_bin_pops[int(cbi[0])] += cbi[1]
 
-    #estimated state populations
-    #for this analysis doing a histogram directly would suffice but that will not work for building MSMs
-    #once the trajectory has been binned there is no need to use a histogram
-    # binned_trj = msm_trj_analysis.bin_to_voxels_msmtrj(config_binner.binbounds, system.x, long_trj_inds)
-    # bin_counts = Counter(binned_trj.flatten()) #count number of frames in each bin; could be added to bin_to_voxels but would slow down things that don't use it
-    # total_counts = len(binned_trj.flatten())
-    # est_bin_pops = [bin_counts[sb]/total_counts for sb in np.unique(state_bins)] #estimate populations only for bins containing msm states
+    est_bin_pops /= np.sum(est_bin_pops)  #normalize estimated bin populations
 
     #calculate the weighted mean absolute error of the estimated bin populations
     maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(bin_pops, est_bin_pops)])
 
-    return (x, e, w, cb, b, propagator, observables), (maew, est_bin_pops)
+    #----------------------------MSM-based population estimation----------------------------#
+
+    aggregate_transitions = np.concatenate([o[2] for o in observables], axis = 1).transpose()
+    eqp_msm = MSM_methods.transitions_to_eq_probs_v2(aggregate_transitions, config_binner.n_bins, show_TPM=False)
+
+    maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(bin_pops, eqp_msm)])
+
+    #print(max(x))
+
+
+    return (x, e, w, cb, b, propagator, observables, cumulative_agg_t), (maew, est_bin_pops, maew_msm, eqp_msm, cumulative_agg_t), cumulative_agg_t >= aggregate_simulation_limit
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
-def sampler_we_hist(system, nsteps, n_timepoints, kT, dt, binbounds):
+def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_timepoints, kT, dt, binbounds):
 
     walkers_per_bin = 6
-    n_rounds = 10
+    n_rounds = 10 #rounds per timepoint
+    n_steps = int(round(max_molecular_time/(n_rounds*n_timepoints))) #per walkers_per_round 
 
     #initialize instances of classes
-    config_binner = config_binner_1(binbounds, system.x)
+    config_binner = config_binner_1(binbounds)
     ensemble_classifier = ensemble_classifier_1(system.macro_class_parallel)
     binner = binner_1()
-    propagator0 = we_propagator_1(system, kT, dt, 1)
+    propagator0 = we_propagator_1(system, kT, dt, n_steps) #the propagator evolves over time in the case of metadynamics
 
     #initial state
-    x0 = np.array([system.standard_init_index for element in range(walkers_per_bin)]) #.reshape((walkers_per_bin, 1, len(system.standard_init_coord)))
+    x0 = np.array([system.standard_init_coord for element in range(walkers_per_bin)]) #.reshape((walkers_per_bin, 1, len(system.standard_init_coord)))
     e0 = [system.macro_class(x0i) for x0i in x0] #initial ensemble is determined by the macrostate classifier
     w0 = [1/walkers_per_bin for element in range(walkers_per_bin)]
     cb0 = config_binner.bin(x0)  #configurational bins
     b0 = binner.bin(cb0, e0)
     cumulative_observables0 = []  #list of lists; each sublist contains the observables calculated at each WE round
-    
-
-    #initiate all simulations in the same state
-    # long_trjs = np.array([system.standard_init_coord for element in range(n_parallel)]).reshape((n_parallel, 1, len(system.standard_init_coord)))
-    # long_trj_inds = np.array([system.standard_init_index for element in range(n_parallel)]).reshape((n_parallel, 1))
 
     #pack the initial state and parameters and run dynamics
-    initial_state = (x0, e0, w0, cb0, b0, propagator0, cumulative_observables0)
-    params = (split_merge, config_binner, ensemble_classifier, binner, calc_observables_1, n_rounds, walkers_per_bin)
+    aggregate_time = 0
+    initial_state = (x0, e0, w0, cb0, b0, propagator0, cumulative_observables0, aggregate_time)
+    params = (split_merge, config_binner, ensemble_classifier, binner, calc_observables_1, n_rounds, walkers_per_bin, aggregate_simulation_limit)
     parallel_trj_outputs = utility_v1.run_for_n_timepoints(we_histogram, params, initial_state, n_timepoints)
 
     #unpack outputs #<----- should this be done in here?
     est_state_pop_convergence = [i[1] for i in parallel_trj_outputs]
     maew_convergence = [i[0] for i in parallel_trj_outputs]
-
-    return est_state_pop_convergence, maew_convergence
-
-
-
-
-#---------------------------------------------------------------------------
-#this class combines config_binner, ensemble_classifier, and binner, but there is no real benefit to doing so so it's probably a bad idea
-#class bins_ensembles():
-#     def __init__(self, binbounds, msm_states, macrostate_classifier, n_macrostates):
-#         self.binbounds = binbounds
-#         self.msm_states = msm_states
-#         self.macrostate_classifier = macrostate_classifier
-#         self.n_macrostates = n_macrostates
-
-#     def config_bin(self, x):
-#         return msm_trj_analysis.bin_to_voxels_msmtrj(self.binbounds, self.msm_states, x)
-#      #this function is deprecated; see above for a parallelized version
-#     def ensemble_class(self, macro_class, i, e):  
-#         ms = macro_class(i)
-#         if ms != -1:
-#             return ms
-#         else:
-#             return e
-        
-#     def ensemble(self, x, b, e):
-#         #determine which ensemble a trajectory currently in ensemble e should be in upon moving to coordinate or state x
-#         return [self.ensemble_class(self.macrostate_classifier, i, ei) for i, ei in zip(b, e)]
-
-#     def bin(self, x, b, e):
-#         return b
     
-#     def ha_bin(self, x, b, e):
-#         return [bi*self.n_macrostates + ei for bi, ei in zip(b, e)]
+    est_state_pop_convergence_msm = [i[3] for i in parallel_trj_outputs]
+    maew_convergence_msm = [i[2] for i in parallel_trj_outputs]
+
+    print(f"aggregate_time: {parallel_trj_outputs[-1][4]}")
+
+    return est_state_pop_convergence, maew_convergence, est_state_pop_convergence_msm, maew_convergence_msm
+
+
+
     

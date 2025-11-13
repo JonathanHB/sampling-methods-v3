@@ -2,6 +2,7 @@ from collections import Counter
 import numpy as np
 import propagators_v1
 import utility_v1
+import MSM_methods
 
 
 #run parallel trajectories and estimate the energy landscape by making a histogram of all the frames
@@ -14,9 +15,12 @@ def parallel_trj_histogram(state, params):
     new_trjs = propagators_v1.propagate(system, kT, trjs[-1].copy(), dt, nsteps, save_period)
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
 
-    #trjs = resume_parallel_simulations_msm(propagators_v1.propagate, system, kT, dt, nsteps, save_period, long_trjs, long_trj_inds) #REPLACE
+    #print(max(trjs.flatten()))
 
     pops_norm, energies_norm = system.normalized_pops_energies(kT, bincenters)
+
+
+    #----------------------------histogram-based population estimation----------------------------#
 
     binbounds_ends = [-999]+[bb for bb in binbounds]+[999]
 
@@ -26,11 +30,30 @@ def parallel_trj_histogram(state, params):
     #calculate the weighted mean absolute error of the estimated bin populations
     maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_bin_pops_norm)])
 
-    return (trjs), (maew, est_bin_pops_norm)
+    #----------------------------MSM-based population estimation----------------------------#
+    trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) #this will have to be replaced with a binning function that works for higher dimensions
+    
+    # print(trjs_ditigized.shape)
+    transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:]))
+    # print(transitions)
+    # print(transitions.shape)
+    transitions = transitions.reshape((2, transitions.shape[1]*transitions.shape[2])).transpose()
+    # print(transitions)
+    # print(transitions.shape)
+    eqp_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
+    
+    maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])
+
+
+    return (trjs), (maew, est_bin_pops_norm, maew_msm, eqp_msm), False
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
-def sampler_parallel_hist(system, n_parallel, nsteps, save_period, n_timepoints, kT, dt, binbounds, bincenters):
+def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_limit, save_period, n_timepoints, kT, dt, binbounds, bincenters):
+
+    #determine number of parallel simulations and steps per simulation
+    n_parallel = int(round(aggregate_simulation_limit/molecular_time_limit))
+    nsteps = int(round(aggregate_simulation_limit/(n_parallel*n_timepoints)))
 
     #initiate all simulations in the same state
     trjs = np.array([system.standard_init_coord for element in range(n_parallel)]).reshape((1, n_parallel, len(system.standard_init_coord)))
@@ -45,7 +68,10 @@ def sampler_parallel_hist(system, n_parallel, nsteps, save_period, n_timepoints,
     est_state_pop_convergence = [i[1] for i in parallel_trj_outputs]
     maew_convergence = [i[0] for i in parallel_trj_outputs]
 
-    return est_state_pop_convergence, maew_convergence
+    est_state_pop_convergence_msm = [i[3] for i in parallel_trj_outputs]
+    maew_convergence_msm = [i[2] for i in parallel_trj_outputs]
+
+    return est_state_pop_convergence, maew_convergence, est_state_pop_convergence_msm, maew_convergence_msm
 
 
 
