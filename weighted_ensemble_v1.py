@@ -29,6 +29,8 @@ import MSM_methods
 
 def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
 
+    printdebug = False
+
     #a list of length n_total_walkers
     #using numpy transposition here would not work because the coordinates are themselves arrays while other attributes are scalars
     walkerdata = [list(row) for row in zip(*walkerdata_transposed)]
@@ -48,6 +50,10 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
     walkerdata_out = []
 
     for isi, indset in enumerate(inds_by_bin):
+        if printdebug:
+            print(f"--------------------{isi}---------------------")
+            for i in indset:
+                print(walkerdata[i]+[w[i]])
         
         #continue simulations in bins with the right population
         if len(indset) == walkers_per_bin:
@@ -105,7 +111,7 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
 
                 #pick 1 walker to remove, most likely one with a low weight
                 #the [0] eliminates an unnecessary list layer
-                removed_walker = random.choices([j for j in range(len(local_indset))], weights=w_removal, k = 1)[0]
+                removed_walker = random.choices([j for j in range(len(local_indset))], weights=w_removal, k = 1)[0] #WEIGHTCAP: w_removal >>> w_removal_masked
                 
                 #remove the walker
                 local_indset = [i for ii, i in enumerate(local_indset) if ii != removed_walker]
@@ -124,15 +130,31 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
                 #     continue
                 #---------------------------------------------------------------------------------------
 
-                recipient_walker = random.choices([j for j in range(len(local_indset))], weights=w_local_indset, k = 1)[0]
+                recipient_walker = random.choices([j for j in range(len(local_indset))], weights=w_local_indset, k = 1)[0] #WEIGHTCAP: w_local_indset >>> w_local_indset_masked
+                
                 w_local_indset[recipient_walker] += removed_weight
 
             for i in range(walkers_per_bin):
                 walkerdata_out.append(walkerdata[local_indset[i]])
                 w_out.append(w_local_indset[i])
 
+    outputs_all = [w_out] + [np.stack([wdi[0] for wdi in walkerdata_out])] + [[wdi[i] for wdi in walkerdata_out] for i in range(1,len(walkerdata_out[0]))]
 
-    return [w_out] + [np.stack([wdi[0] for wdi in walkerdata_out])] + [[wdi[i] for wdi in walkerdata_out] for i in range(1,len(walkerdata_out[0]))]
+    #----------------------------------debugging-------------------------------------------
+    if printdebug:
+        walkerdata2 = [list(row) for row in zip(*outputs_all)]
+        # print(walkerdata2)
+        # print("\n\n\n\n")
+
+        print("                        outputs")
+        for b in range(max(b)+1):
+            print(f"--------------------{b}---------------------")
+            for wdi in walkerdata2:
+                if wdi[4] == b:
+                    print(wdi)
+
+
+    return outputs_all
 
 
 
@@ -214,6 +236,9 @@ def weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, en
         #     plt.show()
 
         (w, x, e, b, cb) = split_merge(w, b_md, (x_md, e_md, b_md, cb_md), walkers_per_bin) #split and merge trajectories
+
+        # if r > 3:
+        #     sys.exit(0)
 
     return x, e, w, cb, b, propagator, observables  #return the final coordinates, ensembles, weights, and observables
 
@@ -314,7 +339,7 @@ def calc_observables_1(x_last, x, e_last, e, w, cb_last, cb, b_last, b, propagat
     return (trj_config_weighted, trj_weighted, cb_transitions, bin_transitions, mtd_weights, len(w))
 
 
-#VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV copied from msm_trj_long_simulation.py; refactoring pending VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+###################################################################################################
 
 #a wrapper for running weighted ensemble in segments and feeding them through msm_trj_analysis.run_for_n_timepoints()
 def we_histogram(state, params):
@@ -345,14 +370,14 @@ def we_histogram(state, params):
     est_bin_pops /= np.sum(est_bin_pops)  #normalize estimated bin populations
 
     #calculate the weighted mean absolute error of the estimated bin populations
-    maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(bin_pops, est_bin_pops)])
+    maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(bin_pops, est_bin_pops)])*(len(config_binner.binbounds)+1)
 
     #----------------------------MSM-based population estimation----------------------------#
 
     aggregate_transitions = np.concatenate([o[2] for o in observables], axis = 1).transpose()
     eqp_msm = MSM_methods.transitions_to_eq_probs_v2(aggregate_transitions, config_binner.n_bins, show_TPM=False)
 
-    maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(bin_pops, eqp_msm)])
+    maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(bin_pops, eqp_msm)])*(len(config_binner.binbounds)+1)
 
     #print(max(x))
 
@@ -361,10 +386,10 @@ def we_histogram(state, params):
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
-def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_timepoints, kT, dt, binbounds):
+def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_timepoints, n_rounds, kT, dt, binbounds):
 
     walkers_per_bin = 6
-    n_rounds = 10 #rounds per timepoint
+    #n_rounds = 100 #rounds per timepoint
     n_steps = int(round(max_molecular_time/(n_rounds*n_timepoints))) #per walkers_per_round 
 
     #initialize instances of classes

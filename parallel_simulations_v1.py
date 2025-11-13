@@ -28,21 +28,18 @@ def parallel_trj_histogram(state, params):
     est_bin_pops_norm = [ebp/len(trjs[1:].flatten()) for ebp in est_bin_pops[0]]
 
     #calculate the weighted mean absolute error of the estimated bin populations
-    maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_bin_pops_norm)])
+    maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_bin_pops_norm)])*(len(binbounds)+1)
 
     #----------------------------MSM-based population estimation----------------------------#
     trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) #this will have to be replaced with a binning function that works for higher dimensions
     
-    # print(trjs_ditigized.shape)
     transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:]))
-    # print(transitions)
-    # print(transitions.shape)
+
     transitions = transitions.reshape((2, transitions.shape[1]*transitions.shape[2])).transpose()
-    # print(transitions)
-    # print(transitions.shape)
+
     eqp_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
     
-    maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])
+    maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])*(len(binbounds)+1)
 
 
     return (trjs), (maew, est_bin_pops_norm, maew_msm, eqp_msm), False
@@ -72,30 +69,6 @@ def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_lim
     maew_convergence_msm = [i[2] for i in parallel_trj_outputs]
 
     return est_state_pop_convergence, maew_convergence, est_state_pop_convergence_msm, maew_convergence_msm
-
-
-
-
-#actual state populations
-#bin all the msm states and then add up the equilibrium probabilities of all the states in each bin
-# state_bins = msm_trj_analysis.bin_to_voxels_msmstates(binbounds, system.x)
-# bin_pops = msm_trj_analysis.state_to_bin_populations(state_bins, system.p)
-
-#estimated state populations
-#for this analysis doing a histogram directly would suffice but that will not work for building MSMs
-#once the trajectory has been binned there is no need to use a histogram
-#binned_trj = np.digitize(trjs.flatten(), binbounds)
-#msm_trj_analysis.bin_to_voxels_msmtrj(binbounds, system.x, long_trj_inds) #REPLACE
-
-#print(binned_trj)
-
-
-
-# bin_counts = Counter(binned_trj.flatten()) #count number of frames in each bin; could be added to bin_to_voxels but would slow down things that don't use it
-# total_counts = len(binned_trj.flatten())
-# est_bin_pops = [bin_counts[sb]/total_counts for sb in np.unique(state_bins)] #estimate populations only for bins containing msm states
-
-#print(bin_counts)
 
 
 
