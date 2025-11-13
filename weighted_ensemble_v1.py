@@ -22,14 +22,22 @@ import MSM_methods
 #parameters
 # w = walker weights
 # b = walker bins (either configurational or history augmented depending on the choice of binner)
-# walkerdata_no_b = a tuple of walker-level parameters other than the weights and bins
+# walkerdata_transposed = a tuple of walker-level parameters other than the weights 
+#     (since the weights are modified by this function and then added later for output)
+#     this contains redundant bin information but including that makes the code cleaner
 # walkers_per_bin = target number of walkers per bin
 #returns
-# a tuple of weights, bins, and the other walker parameters from walkerdata_no_b, for the new set of split/merged walkers
+# a tuple of weights, bins, and the other walker parameters from walkerdata_transposed, for the new set of split/merged walkers
 
 def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
 
     printdebug = False
+
+    #this stops walkers with weights above this threshold from merging even it would leave a bin overpopulated, selecting lighter ones where possible
+    #it's basically anti-trust legislation for WE walkers
+    maxweight = False
+    if maxweight:
+        merge_threshold = 0.05
 
     #a list of length n_total_walkers
     #using numpy transposition here would not work because the coordinates are themselves arrays while other attributes are scalars
@@ -40,16 +48,13 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
     for walker_ind, bin_ind in enumerate(b):
         inds_by_bin[bin_ind].append(walker_ind)
 
-    # if r%round(nrounds/10) == 0:
-    #     plt.scatter([bincenters_flat], [len(i) for i in inds_by_bin])
-    #     plt.show()
-    #     print(f"bins_with_1_walker: {[iii for iii, l in enumerate([len(i) for i in inds_by_bin]) if l == 1]}")
     
     # weights and other walker information for each walker produced by the splitting/merging process (including unaltered ones)
     w_out = []
     walkerdata_out = []
 
     for isi, indset in enumerate(inds_by_bin):
+
         if printdebug:
             print(f"--------------------{isi}---------------------")
             for i in indset:
@@ -67,7 +72,6 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
 
             #select walkers to duplicate
             w_indset = [w[i] for i in indset]
-
             duplicated_walkers = random.choices(indset, weights=w_indset, k = walkers_per_bin-len(indset))
             
             #add coordinates and weights of walkers from this bin to the list for next round
@@ -87,7 +91,6 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
 
         #merge simulations in bins with too many walkers
         elif len(indset) > walkers_per_bin:
-            merge_threshold = 0.05
 
             #total bin weight; does not change because merging operations preserve weight
             w_bin = sum([w[i] for i in indset])
@@ -103,12 +106,14 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
                 w_removal = [(w_bin - w[i])/w_bin for i in local_indset]
 
                 #-------------------------------------experimental--------------------------------------------------
-                # w_removal_masked = [wr if wli < merge_threshold else 0 for wli, wr in zip(w_local_indset, w_removal)]
-                # if sum(w_removal_masked) == 0:
-                #     print(w_local_indset)
-                #     continue
+                if maxweight:
+                    print("update line marked WEIGHTCAP")
+                    w_removal_masked = [wr if wli < merge_threshold else 0 for wli, wr in zip(w_local_indset, w_removal)]
+                    if sum(w_removal_masked) == 0:
+                        print(w_local_indset)
+                        continue
                 #---------------------------------------------------------------------------------------
-
+                
                 #pick 1 walker to remove, most likely one with a low weight
                 #the [0] eliminates an unnecessary list layer
                 removed_walker = random.choices([j for j in range(len(local_indset))], weights=w_removal, k = 1)[0] #WEIGHTCAP: w_removal >>> w_removal_masked
@@ -118,34 +123,35 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
                 removed_weight = w_local_indset[removed_walker]
                 w_local_indset = [i for ii, i in enumerate(w_local_indset) if ii != removed_walker]
                 
-                #pick another walker to gain the removed walker's probability
-                #selection chance is proportional to existing weight
                 #-------------------------------------experimental--------------------------------------------------
-                # w_local_indset_masked = [wli if wli < merge_threshold else 0 for wli in w_local_indset]
-                # # if w_local_indset != w_local_indset_masked:
-                # #     print(w_local_indset)
-                # #     print(w_local_indset_masked)
-                # if sum(w_local_indset_masked) == 0:
-                #     print(w_local_indset)
-                #     continue
+                if maxweight:
+                    print("update line marked WEIGHTCAP")
+                    w_local_indset_masked = [wli if wli < merge_threshold else 0 for wli in w_local_indset]
+                    if sum(w_local_indset_masked) == 0:
+                        print(w_local_indset)
+                        continue
                 #---------------------------------------------------------------------------------------
 
+                #pick another walker to gain the removed walker's probability
+                #selection chance is proportional to existing weight
                 recipient_walker = random.choices([j for j in range(len(local_indset))], weights=w_local_indset, k = 1)[0] #WEIGHTCAP: w_local_indset >>> w_local_indset_masked
                 
+                #transfer the removed walker's weight
                 w_local_indset[recipient_walker] += removed_weight
 
+            #add the remaining walkers with updated weights to the output list
             for i in range(walkers_per_bin):
                 walkerdata_out.append(walkerdata[local_indset[i]])
                 w_out.append(w_local_indset[i])
 
+
+    #combine data for new walkers into a consistent list of lists and arrays
     outputs_all = [w_out] + [np.stack([wdi[0] for wdi in walkerdata_out])] + [[wdi[i] for wdi in walkerdata_out] for i in range(1,len(walkerdata_out[0]))]
+
 
     #----------------------------------debugging-------------------------------------------
     if printdebug:
         walkerdata2 = [list(row) for row in zip(*outputs_all)]
-        # print(walkerdata2)
-        # print("\n\n\n\n")
-
         print("                        outputs")
         for b in range(max(b)+1):
             print(f"--------------------{b}---------------------")
@@ -155,8 +161,6 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
 
 
     return outputs_all
-
-
 
 
 #PARAMETERS
@@ -197,7 +201,8 @@ def weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, en
     w = w.copy()    #WE weights
     cb = cb.copy()  #configurational bin indices for MSM analysis
     b = b.copy()    #bin indices for haMSM analysis
-    #es_args = es_args.copy() #arguments for enhanced sampling methods, such as a metadynamics potential grid
+    #es_args = es_args.copy() #arguments for enhanced sampling methods, such as a metadynamics potential grid. 
+    # This is only needed as a variable outside the propagator if each walker has its own es_args.
 
     observables = []
 
@@ -207,40 +212,36 @@ def weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, en
         if r%max(round(nrounds/10), 1) == 0:
             print(f"WE round {r}")
 
+        #deepcopy variables for observable calculation (i.e. to get transitions)
         x_last = x.copy()
         e_last = e.copy()
         cb_last = cb.copy()
         b_last = b.copy()
-        # print("------------before------------")
-        # print(x)
-        # print("------------------------------")
-        #beware that this propagator modifies x in place
-        x_md = propagator.propagate(x, w)           #propagate dynamics. es_args can be used to alter propagator function, i.e. changing the energy landscape in metadynamics
-        # print(x_md)
-        # print(x)
-        # print(x_last)
-        # print("------------after-------------")
-        #sys.exit(0)                                            #w is only passed in because it will be used to update metadynamics grids
-        #es_args = es_updater(es_args, x_md, w)     #calculate new enhanced sampling arguments based on the propagated coordinates and the current weights (i.e. add to the MTD grid) #now inside propagator
-        cb_md = config_binner.bin(x_md)             #calculate configurational bins
-        e_md = ensemble_classifier.ensemble(x_md, e_last)   #determine which ensemble each walker belongs to based on the new coordinates or configurational bins and the last ensembles. This need not use both x_md and cb_md.
-        b_md = binner.bin(cb_md, e_md)              #determine which bin each walker belongs to based on the new coordinates or configurational bins and its current ensemble. This need not use both x_md and cb_md. 
-                                                    # for non-history-augmented binning schemes e is unused and this simply returns the configurational bin
-        observables.append(calc_observables(x_last, x_md, e_last, e_md, w, cb_last, cb_md, b_last, b_md, propagator)) #calculate MSM transitions, total bin occupancies, or whatever other observables are desired
 
-        # print(f"  total weight check: {min(w)}")
-        # if r == 0:
-        #     #plt.hist([np.log(wi) for wi in w], bins=32)
-        #     #plt.hist(x, weights=w, bins=62)
-        #     plt.hist(x)
-        #     plt.show()
+        #Propagate dynamics
+        # beware that this propagator modifies x in place
+        # w is only passed in because it will be used to update metadynamics grids
+        x_md = propagator.propagate(x, w)
 
-        (w, x, e, b, cb) = split_merge(w, b_md, (x_md, e_md, b_md, cb_md), walkers_per_bin) #split and merge trajectories
+        #Calculate configurational bins
+        cb_md = config_binner.bin(x_md)
 
-        # if r > 3:
-        #     sys.exit(0)
+        #Determine which ensemble each walker belongs to based on the new coordinates or configurational bins and the last ensembles.
+        # This need not use both x_md and cb_md; both are included to support different ensemble_classifier objects.
+        e_md = ensemble_classifier.ensemble(x_md, cb_md, e_last)
 
-    return x, e, w, cb, b, propagator, observables  #return the final coordinates, ensembles, weights, and observables
+        #Determine which bin each walker belongs to based on the new coordinates or configurational bins and its current ensemble.
+        # For non-history-augmented binning schemes e is unused and this simply returns the configurational bins cb_md.
+        b_md = binner.bin(cb_md, e_md)
+
+        #Calculate total bin occupancies, MSM transitions, and/or whatever other observables are desired
+        observables.append(calc_observables(x_last, x_md, e_last, e_md, w, cb_last, cb_md, b_last, b_md, propagator))
+
+        #Split and merge trajectories
+        (w, x, e, b, cb) = split_merge(w, b_md, (x_md, e_md, b_md, cb_md), walkers_per_bin)
+
+    #return the final coordinates, ensembles, weights, bins, propagator (for metadynamics purposes when it is modified) and observables
+    return x, e, w, cb, b, propagator, observables  
 
 
 
@@ -297,7 +298,7 @@ class ensemble_classifier_1():
     def __init__(self, macrostate_classifier):
         self.macrostate_classifier = macrostate_classifier
 
-    def ensemble(self, x, e):
+    def ensemble(self, x, cb, e):
         #determine which ensemble a trajectory currently in ensemble e should be in upon moving to coordinate or state x
         macrostates = self.macrostate_classifier(x)
         ensembles = np.where(macrostates == -1, e, macrostates)  #if the macrostate is not -1, use it; otherwise use the current ensemble
@@ -379,8 +380,6 @@ def we_histogram(state, params):
 
     maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(bin_pops, eqp_msm)])*(len(config_binner.binbounds)+1)
 
-    #print(max(x))
-
 
     return (x, e, w, cb, b, propagator, observables, cumulative_agg_t), (maew, est_bin_pops, maew_msm, eqp_msm, cumulative_agg_t), cumulative_agg_t >= aggregate_simulation_limit
 
@@ -407,21 +406,15 @@ def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_ti
     cumulative_observables0 = []  #list of lists; each sublist contains the observables calculated at each WE round
 
     #pack the initial state and parameters and run dynamics
-    aggregate_time = 0
-    initial_state = (x0, e0, w0, cb0, b0, propagator0, cumulative_observables0, aggregate_time)
+    initial_state = (x0, e0, w0, cb0, b0, propagator0, cumulative_observables0, 0) #the final 0 is the initial aggregate simulation time
     params = (split_merge, config_binner, ensemble_classifier, binner, calc_observables_1, n_rounds, walkers_per_bin, aggregate_simulation_limit)
-    parallel_trj_outputs = utility_v1.run_for_n_timepoints(we_histogram, params, initial_state, n_timepoints)
+    time_x_observables = utility_v1.run_for_n_timepoints(we_histogram, params, initial_state, n_timepoints)
 
-    #unpack outputs #<----- should this be done in here?
-    est_state_pop_convergence = [i[1] for i in parallel_trj_outputs]
-    maew_convergence = [i[0] for i in parallel_trj_outputs]
-    
-    est_state_pop_convergence_msm = [i[3] for i in parallel_trj_outputs]
-    maew_convergence_msm = [i[2] for i in parallel_trj_outputs]
+    #effectively transpose the list of lists so the first axis is observable type rather than time
+    #but without the data type/structure requirement of a numpy array
+    observables_x_time = [list(row) for row in zip(*time_x_observables)]
 
-    print(f"aggregate_time: {parallel_trj_outputs[-1][4]}")
-
-    return est_state_pop_convergence, maew_convergence, est_state_pop_convergence_msm, maew_convergence_msm
+    return observables_x_time
 
 
 

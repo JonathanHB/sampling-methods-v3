@@ -7,38 +7,47 @@ import MSM_methods
 
 #run parallel trajectories and estimate the energy landscape by making a histogram of all the frames
 def parallel_trj_histogram(state, params):
+    
     #unpack inputs
-    trjs = state
+    trjs = state #this is unnecessarily complicated but keeps the same structure as other methods
     system, kT, dt, nsteps, save_period, binbounds, bincenters = params
 
     #run dynamics
     new_trjs = propagators_v1.propagate(system, kT, trjs[-1].copy(), dt, nsteps, save_period)
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
 
-    #print(max(trjs.flatten()))
+    #----------------------------true populations---------------------------------------------#
 
     pops_norm, energies_norm = system.normalized_pops_energies(kT, bincenters)
 
-
     #----------------------------histogram-based population estimation----------------------------#
 
+    #unlike np.digitize, np.histogram does not include data past the ends of the bin range, so we add artificial end bin boundaries
     binbounds_ends = [-999]+[bb for bb in binbounds]+[999]
 
+    #estimate state populations from histogram
+    #this will have to be replaced with a binning function that works for higher dimensions. 
+    # It may make sense to abstract the binner object from WE into utility and use it here too
     est_bin_pops = np.histogram(trjs[1:].flatten(), binbounds_ends, density=False)
     est_bin_pops_norm = [ebp/len(trjs[1:].flatten()) for ebp in est_bin_pops[0]]
 
     #calculate the weighted mean absolute error of the estimated bin populations
     maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_bin_pops_norm)])*(len(binbounds)+1)
 
-    #----------------------------MSM-based population estimation----------------------------#
-    trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) #this will have to be replaced with a binning function that works for higher dimensions
+    #----------------------------MSM-based population estimation----------------------------------#
     
+    #this will have to be replaced with a binning function that works for higher dimensions
+    trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
+    
+    #calculate transitions by stacking the bin array with a time-shifted copy of itself
+    # and then reshaping to combine transitions from all parallel trajectories
     transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:]))
-
     transitions = transitions.reshape((2, transitions.shape[1]*transitions.shape[2])).transpose()
 
+    #build MSM
     eqp_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
     
+    #calculate the weighted mean absolute error of the estimated bin populations
     maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])*(len(binbounds)+1)
 
 
@@ -59,16 +68,13 @@ def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_lim
     #pack the initial state and parameters and run dynamics
     initial_state = (trjs)
     params = (system, kT, dt, nsteps, save_period, binbounds, bincenters)
-    parallel_trj_outputs = utility_v1.run_for_n_timepoints(parallel_trj_histogram, params, initial_state, n_timepoints)
+    time_x_observables = utility_v1.run_for_n_timepoints(parallel_trj_histogram, params, initial_state, n_timepoints)
 
-    #unpack outputs
-    est_state_pop_convergence = [i[1] for i in parallel_trj_outputs]
-    maew_convergence = [i[0] for i in parallel_trj_outputs]
+    #effectively transpose the list of lists so the first axis is observable type rather than time
+    #but without the data type/structure requirement of a numpy array
+    observables_x_time = [list(row) for row in zip(*time_x_observables)]
 
-    est_state_pop_convergence_msm = [i[3] for i in parallel_trj_outputs]
-    maew_convergence_msm = [i[2] for i in parallel_trj_outputs]
-
-    return est_state_pop_convergence, maew_convergence, est_state_pop_convergence_msm, maew_convergence_msm
+    return observables_x_time
 
 
 
