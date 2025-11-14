@@ -61,6 +61,10 @@ def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_lim
     n_parallel = int(round(aggregate_simulation_limit/molecular_time_limit))
     nsteps = int(round(aggregate_simulation_limit/(n_parallel*n_timepoints)))
 
+    print(f"running {n_parallel} parallel simulations for {nsteps*n_timepoints} steps each")
+    print(f"molecular time: {nsteps*n_timepoints} steps;  aggregate time: {nsteps*n_timepoints*n_parallel} steps")
+    print(f"data points saved: {aggregate_simulation_limit/save_period}")
+
     #initiate all simulations in the same state
     trjs = np.array([system.standard_init_coord for element in range(n_parallel)]).reshape((1, n_parallel, len(system.standard_init_coord)))
     #long_trj_inds = np.array([system.standard_init_index for element in range(n_parallel)]).reshape((n_parallel, 1))

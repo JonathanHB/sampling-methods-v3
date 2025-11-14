@@ -208,9 +208,9 @@ def weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, en
 
     for r in range(nrounds):
 
-        #print a note every 1/10th of the way there
-        if r%max(round(nrounds/10), 1) == 0:
-            print(f"WE round {r}")
+        # #print a note every 1/10th of the way there
+        # if r%max(round(nrounds/10), 1) == 0:
+        #     print(f"WE round {r}")
 
         #deepcopy variables for observable calculation (i.e. to get transitions)
         x_last = x.copy()
@@ -385,11 +385,16 @@ def we_histogram(state, params):
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
+#note that n_rounds is the number of WE rounds per timepoint
 def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_timepoints, n_rounds, kT, dt, binbounds):
 
     walkers_per_bin = 6
     #n_rounds = 100 #rounds per timepoint
     n_steps = int(round(max_molecular_time/(n_rounds*n_timepoints))) #per walkers_per_round 
+
+    print(f"running weighted ensemble with {walkers_per_bin} walkers per bin in {len(binbounds)+1} bins for {n_rounds*n_timepoints} WE rounds of {n_steps} steps each")
+    print(f"molecular time: {n_steps*n_timepoints*n_rounds} steps;  maximum aggregate time: {n_steps*n_timepoints*n_rounds*walkers_per_bin*(len(binbounds)+1)} steps")
+    print(f"maximum data points saved: {n_timepoints*n_rounds*walkers_per_bin*(len(binbounds)+1)}")
 
     #initialize instances of classes
     config_binner = config_binner_1(binbounds)
@@ -413,6 +418,9 @@ def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_ti
     #effectively transpose the list of lists so the first axis is observable type rather than time
     #but without the data type/structure requirement of a numpy array
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
+
+    print(f"aggregate simulation time: {time_x_observables[-1][-1]} steps")
+    print(f"aggregate number of walkers = number of data points saved = {time_x_observables[-1][-1]/n_steps}")
 
     return observables_x_time
 

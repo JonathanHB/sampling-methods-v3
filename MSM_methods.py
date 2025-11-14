@@ -127,7 +127,7 @@ def transitions_2_msm(transitions):
 #returns
 # eqp_msm: the equilibrium probabilities of each state in the MSM
 
-def tpm_2_eqprobs(msm_tpm):
+def tpm_2_eqprobs(msm_tpm, print_convergence_time=False):
 
     #get tpm eigenvalues to find state probabilities
     msm_eigs = np.linalg.eig(msm_tpm)
@@ -177,7 +177,8 @@ def tpm_2_eqprobs(msm_tpm):
         
         maxerror = max(abs(max(fractional_errors)[0]), abs(min(fractional_errors)[0]))
         if maxerror < 10**-nfigs and min(eig0c)[0] >= 0:
-            print(f"eigenvector converged to within 10^{-nfigs} after {r} rounds")
+            if print_convergence_time:
+                print(f"eigenvector converged to within 10^{-nfigs} after {r} rounds")
             converged = True
             break
             
