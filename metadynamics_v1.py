@@ -2,7 +2,9 @@ import numpy as np
 import itertools
 import sys
 
-#idea: what if we ran metadynamics with evaporating/eroding gaussians? Like if every new gaussian had the same weight but old ones gradually shrunk.
+import binning_v1 as analysis
+
+#idea: what if we ran metadynamics with evaporating/eroding gaussians? Like if every new gaussian had the same weight but old ones gradually shrunk. This might not work so well with the grid though.
 
 #METHOD OUTLINE
 #objects:
@@ -34,6 +36,8 @@ class grid():
         self.invstds = np.reciprocal(self.stdevs)
 
         self.bincenters, self.binwidth, self.nbins, self.nbins_total_scalar_actual, self.binbounds, self.ndim, self.prods_higher = analysis.construct_voxel_bins(bounds, nbins_total)
+        print(self.nbins)
+        print(self.binbounds)
         
         self.grid = np.zeros(self.nbins)
         self.forcegrids = -np.gradient(self.grid, self.binwidth).reshape([self.dim]+self.nbins)

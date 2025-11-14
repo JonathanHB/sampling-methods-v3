@@ -13,12 +13,18 @@ def parallel_trj_histogram(state, params):
     system, kT, dt, nsteps, save_period, binbounds, bincenters = params
 
     #run dynamics
-    new_trjs = propagators_v1.propagate(system, kT, trjs[-1].copy(), dt, nsteps, save_period)
+    new_trjs = propagators_v1.propagate_mtd(system, kT, trjs[-1].copy(), dt, nsteps, save_period)
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
 
     #----------------------------true populations---------------------------------------------#
 
     pops_norm, energies_norm = system.normalized_pops_energies(kT, bincenters)
+
+
+
+
+
+    #VVVVVVVVVV     deprecated function section       VVVVVVVVVV
 
     #----------------------------histogram-based population estimation----------------------------#
 

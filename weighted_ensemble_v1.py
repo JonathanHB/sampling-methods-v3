@@ -420,7 +420,7 @@ def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_ti
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
 
     print(f"aggregate simulation time: {time_x_observables[-1][-1]} steps")
-    print(f"aggregate number of walkers = number of data points saved = {time_x_observables[-1][-1]/n_steps}")
+    print(f"aggregate number of walkers = number of data points saved = {time_x_observables[-1][-1]/n_steps} at {n_steps}-step intervals")
 
     return observables_x_time
 
