@@ -36,8 +36,6 @@ class grid():
         self.invstds = np.reciprocal(self.stdevs)
 
         self.bincenters, self.binwidth, self.nbins, self.nbins_total_scalar_actual, self.binbounds, self.ndim, self.prods_higher = analysis.construct_voxel_bins(bounds, nbins_total)
-        print(self.nbins)
-        print(self.binbounds)
         
         self.grid = np.zeros(self.nbins)
         self.forcegrids = -np.gradient(self.grid, self.binwidth).reshape([self.dim]+self.nbins)
@@ -76,7 +74,9 @@ class grid():
 
         return forces
     
+    
     #get the metadynamics energy and corresponding weight at each grid point
+    #BEWARE that the output is not normalized
     def weights(self, trjs, kT):
 
         bin_inds, nd_inds = analysis.bin_to_voxels_timeslice(self.ndim, self.binbounds, self.prods_higher, trjs)

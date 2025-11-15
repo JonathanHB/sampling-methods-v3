@@ -50,9 +50,10 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsteps, save_period, grid):
     grid_rates = [grid.rate for i in trj_coords]
 
     #trj_out = []
-    trj_out = np.zeros((nsteps//save_period, trj_coords.shape[0], trj_coords.shape[1]))
+    #w_out = []
 
-    w_out = []
+    trj_out = np.zeros((nsteps//save_period, trj_coords.shape[0], trj_coords.shape[1]))
+    w_out = np.zeros((nsteps//save_period, trj_coords.shape[0]))
     
     for i in range(nsteps//save_period):
     
@@ -61,7 +62,8 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsteps, save_period, grid):
         
         #trj_out.append(trj_coords.copy())
         trj_out[i] = trj_coords
-        w_out.append(grid.weights(trj_coords, kT))
+        w_out[i] = grid.weights(trj_coords, kT)
+        #w_out.append(grid.weights(trj_coords, kT))
         
         grid.update(trj_coords, grid_rates)
         #grid.compute_forces(trj_coords)

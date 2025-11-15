@@ -28,8 +28,8 @@ def parallel_trj_histogram(state, params):
     #estimate state populations from histogram
     #this will have to be replaced with a binning function that works for higher dimensions. 
     # It may make sense to abstract the binner object from WE into utility and use it here too
-    est_bin_pops = np.histogram(trjs[1:].flatten(), binbounds_ends, density=False)
-    est_bin_pops_norm = [ebp/len(trjs[1:].flatten()) for ebp in est_bin_pops[0]]
+    est_bin_pops = np.histogram(trjs.flatten(), binbounds_ends, density=False)
+    est_bin_pops_norm = [ebp/len(trjs.flatten()) for ebp in est_bin_pops[0]]
 
     #calculate the weighted mean absolute error of the estimated bin populations
     maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_bin_pops_norm)])*(len(binbounds)+1)
