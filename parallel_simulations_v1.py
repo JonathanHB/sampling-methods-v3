@@ -1,9 +1,10 @@
 from collections import Counter
 import numpy as np
+import MSM_methods
+import time
+
 import propagators_v1
 import utility_v1
-import MSM_methods
-
 
 #run parallel trajectories and estimate the energy landscape by making a histogram of all the frames
 def parallel_trj_histogram(state, params):
@@ -11,12 +12,16 @@ def parallel_trj_histogram(state, params):
     #unpack inputs
     trjs = state #this is unnecessarily complicated but keeps the same structure as other methods
     system, kT, dt, nsteps, save_period, binbounds, bincenters = params
-
+    
+    t3 = time.time()
     #run dynamics
     new_trjs = propagators_v1.propagate(system, kT, trjs[-1].copy(), dt, nsteps, save_period)
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
-
+    t4 = time.time()
+    print(f"dynamics={t4-t3}")
+    
     #----------------------------true populations---------------------------------------------#
+    t1 = time.time()
 
     pops_norm, energies_norm = system.normalized_pops_energies(kT, bincenters)
 
@@ -49,14 +54,16 @@ def parallel_trj_histogram(state, params):
     
     #calculate the weighted mean absolute error of the estimated bin populations
     maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])*(len(binbounds)+1)
-
+    
+    t2 = time.time()
+    print(f"analysis={t2-t1}")
 
     return (trjs), (maew, est_bin_pops_norm, maew_msm, eqp_msm), False
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
 def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_limit, save_period, n_timepoints, kT, dt, binbounds, bincenters):
-
+    t1 = time.time()
     #determine number of parallel simulations and steps per simulation
     n_parallel = int(round(aggregate_simulation_limit/molecular_time_limit))
     nsteps = int(round(aggregate_simulation_limit/(n_parallel*n_timepoints)))
@@ -69,14 +76,21 @@ def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_lim
     trjs = np.array([system.standard_init_coord for element in range(n_parallel)]).reshape((1, n_parallel, len(system.standard_init_coord)))
     #long_trj_inds = np.array([system.standard_init_index for element in range(n_parallel)]).reshape((n_parallel, 1))
 
+    t3 = time.time()
     #pack the initial state and parameters and run dynamics
     initial_state = (trjs)
     params = (system, kT, dt, nsteps, save_period, binbounds, bincenters)
     time_x_observables = utility_v1.run_for_n_timepoints(parallel_trj_histogram, params, initial_state, n_timepoints)
+    
+    t4 = time.time()
+    print(f"simulation={t4-t3}")
 
     #effectively transpose the list of lists so the first axis is observable type rather than time
     #but without the data type/structure requirement of a numpy array
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
+    
+    t2 = time.time()
+    print(f"total={t2-t1}")
 
     return observables_x_time
 

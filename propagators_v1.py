@@ -7,6 +7,7 @@
 ################################################################################################################
 
 import numpy as np
+import time
 
 #parameters
 #   trj_coords: list of floats: initial coordinates of the trajectories on the progress coordinate
@@ -44,10 +45,12 @@ def propagate(system, kT, trj_coords, timestep, nsteps, save_period):
 #nsteps must be an integer multiple of save_period
 def propagate_mtd(system, kT, trj_coords, timestep, nsteps, save_period, grid):
   
+    t1 = time.time()
     nd = np.array(trj_coords.shape)   #this includes both the number of trajectories and the number of dimensions
     D = system.diffusion_coefficient
     
-    grid_rates = [grid.rate for i in trj_coords]
+    grid_rates = np.full(trj_coords.shape[0], grid.rate) 
+    #np.ones(trj_coords.shape[0])*grid_rates #[grid.rate for i in trj_coords]
 
     #trj_out = []
     #w_out = []
@@ -55,18 +58,37 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsteps, save_period, grid):
     trj_out = np.zeros((nsteps//save_period, trj_coords.shape[0], trj_coords.shape[1]))
     w_out = np.zeros((nsteps//save_period, trj_coords.shape[0]))
     
+    fc = 0
+    updates = 0
+
     for i in range(nsteps//save_period):
     
         for step in range(save_period):
+
+            aaa = grid.compute_forces(trj_coords)
+            if len(aaa) == 5:
+                print("aaa is None")
+            
+            t3 = time.time()
             trj_coords += D/kT * (system.F(trj_coords) + grid.compute_forces(trj_coords)) * timestep + np.sqrt(2*D*timestep)*np.random.normal(size=nd)
-        
+            t4 = time.time()
+            fc += t4 - t3
+
         #trj_out.append(trj_coords.copy())
         trj_out[i] = trj_coords
         w_out[i] = grid.weights(trj_coords, kT)
         #w_out.append(grid.weights(trj_coords, kT))
         
-        grid.update(trj_coords, grid_rates)
+        t5 = time.time()
+        grid.update2(trj_coords, grid_rates)
         #grid.compute_forces(trj_coords)
+        t6 = time.time()
+        updates += t6 - t5
+
+    t2 = time.time()
+    print(f"propagator total={t2-t1}")
+    print(f"force calculation={fc}")
+    print(f"updates={updates}")
 
     #print(trj_out[1].shape)
     return trj_out, w_out, grid

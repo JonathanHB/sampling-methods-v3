@@ -7,6 +7,7 @@ import utility_v1
 import MSM_methods
 
 import matplotlib.pyplot as plt
+import time
 
 #run parallel trajectories and estimate the energy landscape by making a histogram of all the frames
 def parallel_trj_histogram_mtd(state, params):
@@ -15,13 +16,17 @@ def parallel_trj_histogram_mtd(state, params):
     trjs, weights, grid = state #this is unnecessarily complicated but keeps the same structure as other methods
     system, kT, dt, nsteps, save_period, binbounds, bincenters = params
 
+    t3 = time.time()
     #run dynamics
     new_trjs, new_weights, grid = propagators_v1.propagate_mtd(system, kT, trjs[-1].copy(), dt, nsteps, save_period, grid)
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
     weights = np.concatenate((weights, new_weights), axis = 0)
+    t4 = time.time()
+    print(f"dynamics={t4-t3}")
 
     #----------------------------true populations---------------------------------------------#
 
+    t1 = time.time()
     pops_norm, energies_norm = system.normalized_pops_energies(kT, bincenters)
 
     #------------------------estimate energies from metadynamics grid-------------------------#
@@ -30,7 +35,8 @@ def parallel_trj_histogram_mtd(state, params):
 
     maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_populations)])*(len(binbounds)+1)
 
-    
+    t2 = time.time()
+    print(f"analysis={t2-t1}")
 
     # #----------------------------histogram-based population estimation----------------------------#
 
