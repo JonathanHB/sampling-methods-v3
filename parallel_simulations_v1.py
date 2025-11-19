@@ -18,7 +18,7 @@ def parallel_trj_histogram(state, params):
     new_trjs = propagators_v1.propagate(system, kT, trjs[-1].copy(), dt, nsteps, save_period)
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
     t4 = time.time()
-    print(f"dynamics={t4-t3}")
+    #print(f"dynamics={t4-t3}")
     
     #----------------------------true populations---------------------------------------------#
     t1 = time.time()
@@ -56,7 +56,7 @@ def parallel_trj_histogram(state, params):
     maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])*(len(binbounds)+1)
     
     t2 = time.time()
-    print(f"analysis={t2-t1}")
+    #print(f"analysis={t2-t1}")
 
     return (trjs), (maew, est_bin_pops_norm, maew_msm, eqp_msm), False
 
@@ -68,6 +68,7 @@ def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_lim
     n_parallel = int(round(aggregate_simulation_limit/molecular_time_limit))
     nsteps = int(round(aggregate_simulation_limit/(n_parallel*n_timepoints)))
 
+    print("\n")
     print(f"running {n_parallel} parallel simulations for {nsteps*n_timepoints} steps each")
     print(f"molecular time: {nsteps*n_timepoints} steps;  aggregate time: {nsteps*n_timepoints*n_parallel} steps")
     print(f"data points saved: {aggregate_simulation_limit/save_period} at {save_period}-step intervals")
@@ -83,14 +84,14 @@ def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_lim
     time_x_observables = utility_v1.run_for_n_timepoints(parallel_trj_histogram, params, initial_state, n_timepoints)
     
     t4 = time.time()
-    print(f"simulation={t4-t3}")
+    #print(f"simulation={t4-t3}")
 
     #effectively transpose the list of lists so the first axis is observable type rather than time
     #but without the data type/structure requirement of a numpy array
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
     
     t2 = time.time()
-    print(f"total={t2-t1}")
+    #print(f"total={t2-t1}")
 
     return observables_x_time
 

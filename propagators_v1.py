@@ -57,7 +57,7 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsteps, save_period, grid):
 
     trj_out = np.zeros((nsteps//save_period, trj_coords.shape[0], trj_coords.shape[1]))
     w_out = np.zeros((nsteps//save_period, trj_coords.shape[0]))
-    
+
     fc = 0
     updates = 0
 
@@ -86,9 +86,9 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsteps, save_period, grid):
         updates += t6 - t5
 
     t2 = time.time()
-    print(f"propagator total={t2-t1}")
-    print(f"force calculation={fc}")
-    print(f"updates={updates}")
+    # print(f"propagator total={t2-t1}")
+    # print(f"force calculation={fc}")
+    # print(f"updates={updates}")
 
     #print(trj_out[1].shape)
     return trj_out, w_out, grid

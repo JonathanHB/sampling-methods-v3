@@ -392,6 +392,7 @@ def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_ti
     #n_rounds = 100 #rounds per timepoint
     n_steps = int(round(max_molecular_time/(n_rounds*n_timepoints))) #per walkers_per_round 
 
+    print("\n")
     print(f"running weighted ensemble with {walkers_per_bin} walkers per bin in {len(binbounds)+1} bins for {n_rounds*n_timepoints} WE rounds of {n_steps} steps each")
     print(f"molecular time: {n_steps*n_timepoints*n_rounds} steps;  maximum aggregate time: {n_steps*n_timepoints*n_rounds*walkers_per_bin*(len(binbounds)+1)} steps")
     print(f"maximum data points saved: {n_timepoints*n_rounds*walkers_per_bin*(len(binbounds)+1)}")

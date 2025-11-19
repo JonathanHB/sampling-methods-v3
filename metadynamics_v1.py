@@ -25,12 +25,13 @@ import matplotlib.pyplot as plt
 
 class grid():
 
-    def __init__(self, bounds, nbins_total, rate = 1, stdevs=[]):
+    def __init__(self, bounds, nbins_total, rate=1, dT=99999, stdevs=[]):
         
         self.bounds = bounds
         print(self.bounds)
         self.dim = len(bounds[0])
         self.rate = rate
+        self.dT = dT
 
         if stdevs == []:
             self.stdevs = [0.025*(xmax-xmin) for xmax, xmin in zip(bounds[1], bounds[0])]
@@ -48,6 +49,7 @@ class grid():
         self.grid_coords = [gci for gci in itertools.product(*[[r for r in range(nbi)] for nbi in self.nbins])]
 
 
+    # super slow do not use
     # Update the grid based on the new position
     def update(self, trjs, weights):
         t1 = time.time()
@@ -99,10 +101,11 @@ class grid():
 
         bin_inds, nd_inds = binning_v1.bin_to_voxels_timeslice(self.ndim, self.binbounds, self.prods_higher, trjs)
         energies = self.grid.take(np.ravel_multi_index(nd_inds.T, self.grid.shape))
-        
-        return [np.exp(ei/kT) for ei in energies]
+
+        return np.exp(energies/kT)
     
 
+    #fully vectorized parallel grid update code for multiple walkers and PC dimensions
     def update2(self, coords, weights):
 
         t1 = time.time()
@@ -112,7 +115,7 @@ class grid():
         #bincenter matrix
         mgrid_tile_dims = [len(coords)]+[1 for i in range(self.ndim+1)]
         mgrid_tiled = np.tile(mg, mgrid_tile_dims) #(len(coords),1,1,1))
-        print(mgrid_tiled.shape)
+        #print(mgrid_tiled.shape)
         # print(mgrid_tiled)
 
         # print(mg)
@@ -120,53 +123,78 @@ class grid():
         #coords = np.array([[-1,0],[3,4],[0,-4]]) #n_walkers x n_dimensions
 
         t2 = time.time()
-        print(f"mgrid {t2-t1}")
+        #print(f"mgrid {t2-t1}")
 
         transpose_arg_s0 = [0,self.dim+1]+[i+1 for i in range(self.dim)]
         #print(transpose_arg_s0)
 
         #sigma matrix
-        s0 = np.tile(self.invstds, (len(coords),*tuple(self.nbins),1)).transpose(*transpose_arg_s0) #(0,3,1,2)
-        print(s0.shape)
+        s0 = np.tile(self.stdevs, (len(coords),*tuple(self.nbins),1)).transpose(*transpose_arg_s0) #(0,3,1,2)
+        #print(s0.shape)
         #sys.exit(0)
         # print(s0)
 
         t3 = time.time()
-        print(f"sigma {t3-t2}")
+        #print(f"sigma {t3-t2}")
+
+        #weight matrix, currently used for well-tempered metadynamics
+        particle_weights = self.weights(coords, -self.dT)
+
+        transpose_arg_w0 = [self.dim]+[i for i in range(self.dim)]
+
+        w0 = np.tile(particle_weights, (*tuple(self.nbins),1)).transpose(transpose_arg_w0)
+        # print(w0.shape)
+
 
         transpose_arg_x0 = [self.dim, self.dim+1]+[i for i in range(self.dim)]
         #print(transpose_arg_x0)
 
         #walker coordinate matrix
         x0 = np.tile(coords, (*self.nbins,1,1)).transpose(*transpose_arg_x0) #(2,3,0,1) #= np.full((10,10), 5)
-        print(x0.shape)
+        #print(x0.shape)
         # print(x0)
 
         t4 = time.time()
-        print(f"coords {t4-t3}")
+        #print(f"coords {t4-t3}")
 
+        #the exponent is a matrix M which in numpy yields a matrix of exponents of the elements of M (i.e. elementwise exponentiation)
         expcomps = np.exp(-((x0-mgrid_tiled)/(2*s0))**2)
         # print(expcomps)
-        print(expcomps.shape)
+        #print(expcomps.shape)
         t5 = time.time()
-        print(f"exp {t5-t4}")
+        #print(f"exp {t5-t4}")
 
         exps = np.product(expcomps, axis = 1)
         # print(exps)
         # print("exps")
         # print(exps.shape)
+
+        tempered_exps = np.multiply(exps, w0)
+
+        # print(tempered_exps.shape)
+
+        #this is a great way of visualizing gaussian deposition for 1d PCs
+        show_tempering = False
+        if show_tempering:
+            plt.imshow(exps)
+            plt.show()
+            plt.imshow(tempered_exps)
+            plt.show()
+            print("-----------------------------------------------------------------")
         # for e in exps:
         #     plt.imshow(e, vmax=1.1, extent = np.array(self.bounds).transpose().flatten(), aspect = (bounds[1][0]-bounds[0][0])/(bounds[1][1]-bounds[0][1]))
         #     #plt.axis("equal")
         #     plt.show()
+        # sys.exit(0)
 
-        exptot = np.sum(exps, axis = 0)[0] #index removes an extra no-longer-needed dimension of array structure
-        
-        plt.plot(exptot)
-        plt.show()
+        exptot = np.sum(tempered_exps, axis = 0)
+        # print(exptot)
+        # print(exptot.shape)
+        # plt.plot(exptot)
+        # plt.show()
 
         t6 = time.time()
-        print(f"sumprod {t6-t5}")
+        #print(f"sumprod {t6-t5}")
         
         # print(exptot.shape)
         # print(self.rate.shape)

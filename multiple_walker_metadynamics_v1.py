@@ -22,7 +22,7 @@ def parallel_trj_histogram_mtd(state, params):
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
     weights = np.concatenate((weights, new_weights), axis = 0)
     t4 = time.time()
-    print(f"dynamics={t4-t3}")
+    #print(f"dynamics={t4-t3}")
 
     #----------------------------true populations---------------------------------------------#
 
@@ -31,60 +31,76 @@ def parallel_trj_histogram_mtd(state, params):
 
     #------------------------estimate energies from metadynamics grid-------------------------#
 
-    est_populations = np.exp(kT*grid.grid)/np.sum(np.exp(kT*grid.grid))
+    est_populations = np.exp(((kT+grid.dT)/grid.dT)*grid.grid)
+    est_populations /= np.sum(est_populations)
 
     maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_populations)])*(len(binbounds)+1)
 
     t2 = time.time()
-    print(f"analysis={t2-t1}")
+    #print(f"analysis={t2-t1}")
 
-    # #----------------------------histogram-based population estimation----------------------------#
+    #----------------------------histogram-based population estimation----------------------------#
 
-    # #unlike np.digitize, np.histogram does not include data past the ends of the bin range, so we add artificial end bin boundaries
-    # binbounds_ends = [-999]+[bb for bb in binbounds]+[999]
+    #unlike np.digitize, np.histogram does not include data past the ends of the bin range, so we add artificial end bin boundaries
+    binbounds_ends = [-999]+[bb for bb in binbounds]+[999]
 
-    # #estimate state populations from histogram
-    # #this will have to be replaced with a binning function that works for higher dimensions. 
-    # # It may make sense to abstract the binner object from WE into utility and use it here too
-    # est_bin_pops = np.histogram(trjs.flatten(), binbounds_ends, weights.flatten(), density=False)
-    # est_bin_pops_norm = [ebp/len(trjs.flatten()) for ebp in est_bin_pops[0]]
+    #estimate state populations from histogram
+    #this will have to be replaced with a binning function that works for higher dimensions. 
+    # It may make sense to abstract the binner object from WE into utility and use it here too
+    est_bin_pops = np.histogram(trjs.flatten(), binbounds_ends, density=False)
+    est_pops_hist = [ebp/len(trjs.flatten()) for ebp in est_bin_pops[0]]
 
-    # #calculate the weighted mean absolute error of the estimated bin populations
-    # maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_bin_pops_norm)])*(len(binbounds)+1)
+    #calculate the weighted mean absolute error of the estimated bin populations
+    maew_hist = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_pops_hist)])*(len(binbounds)+1)
+
+    #----------------------------combined grid+histogram-based population estimation----------------------------#
+
+    est_bin_pops_weighted = np.histogram(trjs.flatten(), binbounds_ends, density=False, weights = weights.flatten())
+    est_pops_hist_weighted = [ebp/np.sum(weights) for ebp in est_bin_pops_weighted[0]]
+
+    # plt.scatter(trjs.flatten(), weights.flatten())
+    # plt.show()
+
+    #calculate the weighted mean absolute error of the estimated bin populations
+    maew_hist_weighted = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_pops_hist_weighted)])*(len(binbounds)+1)
+
 
     # #----------------------------MSM-based population estimation----------------------------------#
     
-    # #this will have to be replaced with a binning function that works for higher dimensions
-    # trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
+    #this will have to be replaced with a binning function that works for higher dimensions
+    trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
     
-    # #calculate transitions by stacking the bin array with a time-shifted copy of itself
-    # # and then reshaping to combine transitions from all parallel trajectories
-    # transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:]))
-    # transitions = transitions.reshape((2, transitions.shape[1]*transitions.shape[2])).transpose()
+    #calculate transitions by stacking the bin array with a time-shifted copy of itself
+    # and then reshaping to combine transitions from all parallel trajectories
+    transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:]))
+    transitions = transitions.reshape((2, transitions.shape[1]*transitions.shape[2])).transpose()
 
-    # #build MSM
-    # eqp_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
+    #build MSM
+    eqp_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
     
-    # #calculate the weighted mean absolute error of the estimated bin populations
-    # maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])*(len(binbounds)+1)
+    #calculate the weighted mean absolute error of the estimated bin populations
+    maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])*(len(binbounds)+1)
 
 
     # plt.plot(grid.grid)
-    # print(grid.grid.shape)
+    # #print(grid.grid.shape)
     # plt.show()
 
-    return (trjs, weights, grid), (maew, est_populations), False
+    return (trjs, weights, grid), (maew, est_populations, maew_hist, est_pops_hist, maew_hist_weighted, est_pops_hist_weighted, maew_msm, eqp_msm), False
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
 def sampler_parallel_hist_mtd(system, aggregate_simulation_limit, molecular_time_limit, save_period, n_timepoints, kT, dt, binbounds, bincenters):
 
-    rate = 0.005
+    rate = 0.0000001*save_period
+    dT = 0.5
+    stdev = [0.5]
 
     #determine number of parallel simulations and steps per simulation
     n_parallel = int(round(aggregate_simulation_limit/molecular_time_limit))
     nsteps = int(round(aggregate_simulation_limit/(n_parallel*n_timepoints)))
 
+    print("\n")
     print(f"running {n_parallel} parallel multiple walker metadynamics simulations for {nsteps*n_timepoints} steps each")
     print(f"molecular time: {nsteps*n_timepoints} steps;  aggregate time: {nsteps*n_timepoints*n_parallel} steps")
     print(f"data points saved: {aggregate_simulation_limit/save_period} at {save_period}-step intervals")
@@ -92,9 +108,9 @@ def sampler_parallel_hist_mtd(system, aggregate_simulation_limit, molecular_time
 
     #initiate all simulations in the same state
     trjs = np.array([system.standard_init_coord for element in range(n_parallel)]).reshape((1, n_parallel, len(system.standard_init_coord)))
-    init_weights = np.repeat(1/n_parallel, n_parallel).reshape((1, n_parallel))
+    init_weights = np.repeat(1, n_parallel).reshape((1, n_parallel)) #surely there is a better way to do this with tile or something
 
-    grid = metadynamics_v1.grid(system.standard_analysis_range, len(binbounds)-1, rate)
+    grid = metadynamics_v1.grid(system.standard_analysis_range, len(binbounds)-1, rate, dT, stdev)
 
     #pack the initial state and parameters and run dynamics
     initial_state = (trjs, init_weights, grid)
