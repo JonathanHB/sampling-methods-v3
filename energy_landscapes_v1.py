@@ -47,7 +47,8 @@ class potential_well_1d():
         z = sum(pops_nonnorm)
         pops_norm = [p/z for p in pops_nonnorm]
     
-        energies_norm = [-kT*np.log(p/(z*binwidth)) for p in pops_nonnorm]
+        #energies_norm = [-kT*np.log(p/(z*binwidth)) for p in pops_nonnorm]
+        energies_norm = -kT*np.log(pops_norm)
 
         return pops_norm, energies_norm
 

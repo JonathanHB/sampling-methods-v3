@@ -107,7 +107,7 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
 
                 #-------------------------------------experimental--------------------------------------------------
                 if maxweight:
-                    print("update line marked WEIGHTCAP")
+                    #print("update line marked WEIGHTCAP")
                     w_removal_masked = [wr if wli < merge_threshold else 0 for wli, wr in zip(w_local_indset, w_removal)]
                     if sum(w_removal_masked) == 0:
                         print(w_local_indset)
@@ -116,8 +116,11 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
                 
                 #pick 1 walker to remove, most likely one with a low weight
                 #the [0] eliminates an unnecessary list layer
-                removed_walker = random.choices([j for j in range(len(local_indset))], weights=w_removal, k = 1)[0] #WEIGHTCAP: w_removal >>> w_removal_masked
-                
+                if not maxweight:
+                    removed_walker = random.choices([j for j in range(len(local_indset))], weights=w_removal, k = 1)[0] #WEIGHTCAP: w_removal >>> w_removal_masked
+                else:
+                    removed_walker = random.choices([j for j in range(len(local_indset))], weights=w_removal_masked, k = 1)[0]
+
                 #remove the walker
                 local_indset = [i for ii, i in enumerate(local_indset) if ii != removed_walker]
                 removed_weight = w_local_indset[removed_walker]
@@ -125,7 +128,7 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
                 
                 #-------------------------------------experimental--------------------------------------------------
                 if maxweight:
-                    print("update line marked WEIGHTCAP")
+                    #print("update line marked WEIGHTCAP")
                     w_local_indset_masked = [wli if wli < merge_threshold else 0 for wli in w_local_indset]
                     if sum(w_local_indset_masked) == 0:
                         print(w_local_indset)
@@ -134,7 +137,10 @@ def split_merge(w, b, walkerdata_transposed, walkers_per_bin):
 
                 #pick another walker to gain the removed walker's probability
                 #selection chance is proportional to existing weight
-                recipient_walker = random.choices([j for j in range(len(local_indset))], weights=w_local_indset, k = 1)[0] #WEIGHTCAP: w_local_indset >>> w_local_indset_masked
+                if not maxweight:
+                    recipient_walker = random.choices([j for j in range(len(local_indset))], weights=w_local_indset, k = 1)[0] #WEIGHTCAP: w_local_indset >>> w_local_indset_masked
+                else:
+                    recipient_walker = random.choices([j for j in range(len(local_indset))], weights=w_local_indset_masked, k = 1)[0] #WEIGHTCAP: w_local_indset >>> w_local_indset_masked
                 
                 #transfer the removed walker's weight
                 w_local_indset[recipient_walker] += removed_weight
@@ -390,6 +396,7 @@ def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_ti
     n_rounds = n_rounds_per_timepoint*n_timepoints #= ~max_molecular_time/n_steps
 
     print("\n")
+    print("---------------------WEIGHTED ENSEMBLE---------------------")
     print(f"running weighted ensemble with {walkers_per_bin} walkers per bin in {len(binbounds)+1} bins for {n_rounds} WE rounds of {n_steps} steps each")
     print(f"molecular time: {n_steps*n_rounds} steps;  maximum aggregate time: {n_steps*n_rounds*walkers_per_bin*(len(binbounds)+1)} steps")
     print(f"maximum data points saved: {n_rounds*walkers_per_bin*(len(binbounds)+1)}")

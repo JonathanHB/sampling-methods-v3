@@ -28,7 +28,7 @@ class grid():
     def __init__(self, bounds, nbins_total, rate=1, dT=99999, stdevs=[]):
         
         self.bounds = bounds
-        print(self.bounds)
+        #print(self.bounds)
         self.dim = len(bounds[0])
         self.rate = rate
         self.dT = dT
@@ -40,8 +40,8 @@ class grid():
         self.invstds = np.reciprocal(self.stdevs)
 
         self.bincenters, self.binwidth, self.nbins, self.nbins_total_scalar_actual, self.binbounds, self.ndim, self.prods_higher = binning_v1.construct_voxel_bins(bounds, nbins_total)
-        print(self.nbins)
-        print(f"bincenters {self.bincenters}")
+        #print(self.nbins)
+        #print(f"bincenters {self.bincenters}")
         self.grid = np.zeros(self.nbins)
         self.forcegrids = -np.gradient(self.grid, self.binwidth).reshape([self.dim]+self.nbins)
 
@@ -105,6 +105,7 @@ class grid():
         return np.exp(energies/kT)
     
 
+    #TODO: clean up and comment this section properly
     #fully vectorized parallel grid update code for multiple walkers and PC dimensions
     def update2(self, coords, weights):
 

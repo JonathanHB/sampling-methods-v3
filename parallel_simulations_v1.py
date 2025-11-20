@@ -33,7 +33,6 @@ def parallel_trj_histogram(state, params):
     est_bin_pops = np.histogram(trjs.flatten(), binbounds_ends, density=False)
     est_bin_pops_norm = [ebp/len(trjs.flatten()) for ebp in est_bin_pops[0]]
 
-
     #----------------------------MSM-based population estimation----------------------------------#
     
     #this will have to be replaced with a binning function that works for higher dimensions
@@ -64,6 +63,7 @@ def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_lim
     nsteps = int(round(aggregate_simulation_limit/(n_parallel*n_timepoints)))
 
     print("\n")
+    print("---------------------PARALLEL---------------------")
     print(f"running {n_parallel} parallel simulations for {nsteps*n_timepoints} steps each")
     print(f"molecular time: {nsteps*n_timepoints} steps;  aggregate time: {nsteps*n_timepoints*n_parallel} steps")
     print(f"data points saved: {aggregate_simulation_limit/save_period} at {save_period}-step intervals")

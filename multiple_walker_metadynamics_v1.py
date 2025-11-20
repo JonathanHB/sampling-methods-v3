@@ -24,13 +24,12 @@ def parallel_trj_histogram_mtd(state, params):
     t4 = time.time()
     #print(f"dynamics={t4-t3}")
 
-
     #----------------------------------------------------------------------------------------------
     #populations associated with grid potential so we can see how well we've filled in the energy wells
     pops_grid_uncorrected = np.exp(grid.grid)
     pops_grid_uncorrected /= np.sum(pops_grid_uncorrected)
 
-    #------------------------estimate energies from metadynamics grid-------------------------#
+    #------------------------estimate populations from metadynamics grid-------------------------#
 
     pops_grid = np.exp(((kT+grid.dT)/grid.dT)*grid.grid)
     pops_grid /= np.sum(pops_grid)
@@ -45,6 +44,11 @@ def parallel_trj_histogram_mtd(state, params):
     # It may make sense to abstract the binner object from WE into utility and use it here too
     pops_hist = np.histogram(trjs.flatten(), binbounds_ends, density=False)
     pops_hist = [ebp/len(trjs.flatten()) for ebp in pops_hist[0]]
+
+    #-----------------------------estimate populations from grid in sampled bins only
+
+    pops_grid_masked = [pg if h>0 else 0 for pg, h in zip(pops_grid, pops_hist)]
+    pops_grid_masked /= np.sum(pops_grid_masked)
 
     #----------------------------combined grid+histogram-based population estimation----------------------------#
 
@@ -65,26 +69,29 @@ def parallel_trj_histogram_mtd(state, params):
     pops_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
     
 
-
     # plt.plot(grid.grid)
     # #print(grid.grid.shape)
     # plt.show()
 
-    return (trjs, weights, grid), (pops_grid_uncorrected, pops_grid, pops_hist, pops_hist_weighted), False
+    return (trjs, weights, grid), (pops_grid_uncorrected, pops_grid, pops_hist, pops_hist_weighted, pops_grid_masked), False
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
 def sampler_parallel_hist_mtd(system, aggregate_simulation_limit, molecular_time_limit, save_period, n_timepoints, kT, dt, binbounds, bincenters):
 
-    rate = 0.00001*save_period
-    dT = 0.9
+    dT = 10
     stdev = [0.5]
 
     #determine number of parallel simulations and steps per simulation
     n_parallel = int(round(aggregate_simulation_limit/molecular_time_limit))
     nsteps = int(round(aggregate_simulation_limit/(n_parallel*n_timepoints)))
 
+    #probability mass is added at a constant rate
+    rate = 0.001*save_period/n_parallel
+
+
     print("\n")
+    print("---------------------MULTIPLE WALKER METADYNAMICS---------------------")
     print(f"running {n_parallel} parallel multiple walker metadynamics simulations for {nsteps*n_timepoints} steps each")
     print(f"molecular time: {nsteps*n_timepoints} steps;  aggregate time: {nsteps*n_timepoints*n_parallel} steps")
     print(f"data points saved: {aggregate_simulation_limit/save_period} at {save_period}-step intervals")
