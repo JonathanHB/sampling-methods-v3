@@ -6,6 +6,8 @@ import time
 import propagators_v1
 import utility_v1
 
+import matplotlib.pyplot as plt
+
 #run parallel trajectories and estimate the energy landscape by making a histogram of all the frames
 def parallel_trj_histogram(state, params):
     
@@ -19,7 +21,6 @@ def parallel_trj_histogram(state, params):
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
     t4 = time.time()
     #print(f"dynamics={t4-t3}")
-    
 
     #----------------------------histogram-based population estimation----------------------------#
 
@@ -48,6 +49,9 @@ def parallel_trj_histogram(state, params):
     
     t2 = time.time()
     #print(f"analysis={t2-t1}")
+
+    # plt.plot(trjs[:,0])
+    # plt.show()
 
     return (trjs), (est_bin_pops_norm, eqp_msm), False
 

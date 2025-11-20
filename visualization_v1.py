@@ -7,7 +7,7 @@ def plot_landscape_estimate(bincenters, est_populations, true_populations, title
     for i, esp in enumerate(est_populations):
         #plt.plot(bincenters, esp, color = str(0.8 - 0.6*i/len(est_populations))) #gray scale
         fade_rg = 0.8 - 0.8*i/len(est_populations)
-        plt.plot(bincenters, esp, color = (1,fade_rg,fade_rg), linewidth=0.5)
+        plt.plot(bincenters, esp, color = (1,fade_rg,fade_rg), linewidth=1)
 
     plt.plot(bincenters, true_populations, color="black")
     plt.title(title)

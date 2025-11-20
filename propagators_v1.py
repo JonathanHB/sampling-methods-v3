@@ -73,6 +73,11 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsteps, save_period, grid):
             trj_coords += D/kT * (system.F(trj_coords) + grid.compute_forces(trj_coords)) * timestep + np.sqrt(2*D*timestep)*np.random.normal(size=nd)
             t4 = time.time()
             fc += t4 - t3
+        
+        # if i == 0:
+        #     print(np.divide(system.F(trj_coords),grid.compute_forces(trj_coords)))
+            # print(system.F(trj_coords))
+            # print(grid.compute_forces(trj_coords))
 
         #trj_out.append(trj_coords.copy())
         trj_out[i] = trj_coords

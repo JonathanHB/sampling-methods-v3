@@ -381,16 +381,18 @@ def we_histogram(state, params):
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
 #note that n_rounds is the number of WE rounds per timepoint
-def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_timepoints, n_rounds, kT, dt, binbounds):
+def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_timepoints, min_communication_interval, kT, dt, binbounds):
 
     walkers_per_bin = 6
     #n_rounds = 100 #rounds per timepoint
-    n_steps = int(round(max_molecular_time/(n_rounds*n_timepoints))) #per walkers_per_round 
+    n_steps = min_communication_interval #int(round(max_molecular_time/(n_rounds*n_timepoints))) #per walkers_per_round 
+    n_rounds_per_timepoint = int(round(max_molecular_time/(n_steps*n_timepoints)))
+    n_rounds = n_rounds_per_timepoint*n_timepoints #= ~max_molecular_time/n_steps
 
     print("\n")
-    print(f"running weighted ensemble with {walkers_per_bin} walkers per bin in {len(binbounds)+1} bins for {n_rounds*n_timepoints} WE rounds of {n_steps} steps each")
-    print(f"molecular time: {n_steps*n_timepoints*n_rounds} steps;  maximum aggregate time: {n_steps*n_timepoints*n_rounds*walkers_per_bin*(len(binbounds)+1)} steps")
-    print(f"maximum data points saved: {n_timepoints*n_rounds*walkers_per_bin*(len(binbounds)+1)}")
+    print(f"running weighted ensemble with {walkers_per_bin} walkers per bin in {len(binbounds)+1} bins for {n_rounds} WE rounds of {n_steps} steps each")
+    print(f"molecular time: {n_steps*n_rounds} steps;  maximum aggregate time: {n_steps*n_rounds*walkers_per_bin*(len(binbounds)+1)} steps")
+    print(f"maximum data points saved: {n_rounds*walkers_per_bin*(len(binbounds)+1)}")
 
     #initialize instances of classes
     config_binner = config_binner_1(binbounds)
@@ -408,7 +410,7 @@ def sampler_we_hist(system, aggregate_simulation_limit, max_molecular_time, n_ti
 
     #pack the initial state and parameters and run dynamics
     initial_state = (x0, e0, w0, cb0, b0, propagator0, cumulative_observables0, 0) #the final 0 is the initial aggregate simulation time
-    params = (split_merge, config_binner, ensemble_classifier, binner, calc_observables_1, n_rounds, walkers_per_bin, aggregate_simulation_limit)
+    params = (split_merge, config_binner, ensemble_classifier, binner, calc_observables_1, n_rounds_per_timepoint, walkers_per_bin, aggregate_simulation_limit)
     time_x_observables = utility_v1.run_for_n_timepoints(we_histogram, params, initial_state, n_timepoints)
 
     #effectively transpose the list of lists so the first axis is observable type rather than time
