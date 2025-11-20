@@ -189,6 +189,35 @@ class deep_sine_well(potential_well_1d):
         super().__init__(self.potential, self.macro_class, self.standard_analysis_range)
 
 
+#a system of several wells of similar energies constructed using a sinusoidal and a quartic potential
+class hexic_well(potential_well_1d):
+    #MFPT(10 frame save frequency) = ~70000 steps
+
+    def potential(self, x):
+        return 0.000001*x**6
+        
+    def F(self, x):
+        return 0.000001*-6*x**5
+    
+    def macro_class(self, x):
+        thr = 2*np.pi
+        if x[0] < -thr:
+            return 0
+        elif x[0] > thr:
+            return 1
+        else:
+            return -1
+        
+    def __init__(self):
+        self.diffusion_coefficient = 1
+        self.n_macrostates = 2
+        self.standard_init_coord = [-3*np.pi]
+        self.standard_analysis_range = [[-22],[20]]
+        self.start_from_index = False
+        super().__init__(self.potential, self.macro_class, self.standard_analysis_range)
+
+
+
 #this is a stub whose functionality is mostly implemented in energy_landscapes_gaussian.py
 # #build an energy landscape with a specified set of minima, and transition states.
 #         #this landscape is to be represented by a set of points placed randomly in n-dimensional space at the specified state_density

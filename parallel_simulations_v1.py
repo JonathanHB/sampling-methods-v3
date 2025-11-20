@@ -37,7 +37,7 @@ def parallel_trj_histogram(state, params):
     est_bin_pops_norm = [ebp/len(trjs.flatten()) for ebp in est_bin_pops[0]]
 
     #calculate the weighted mean absolute error of the estimated bin populations
-    maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_bin_pops_norm)])*(len(binbounds)+1)
+    maew = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, est_bin_pops_norm)]) #*(len(binbounds)+1)
 
     #----------------------------MSM-based population estimation----------------------------------#
     
@@ -53,7 +53,7 @@ def parallel_trj_histogram(state, params):
     eqp_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
     
     #calculate the weighted mean absolute error of the estimated bin populations
-    maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])*(len(binbounds)+1)
+    maew_msm = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)]) #*(len(binbounds)+1)
     
     t2 = time.time()
     #print(f"analysis={t2-t1}")

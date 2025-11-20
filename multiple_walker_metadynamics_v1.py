@@ -34,7 +34,7 @@ def parallel_trj_histogram_mtd(state, params):
     est_populations = np.exp(((kT+grid.dT)/grid.dT)*grid.grid)
     est_populations /= np.sum(est_populations)
 
-    maew = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_populations)])*(len(binbounds)+1)
+    maew = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, est_populations)])
 
     t2 = time.time()
     #print(f"analysis={t2-t1}")
@@ -51,7 +51,7 @@ def parallel_trj_histogram_mtd(state, params):
     est_pops_hist = [ebp/len(trjs.flatten()) for ebp in est_bin_pops[0]]
 
     #calculate the weighted mean absolute error of the estimated bin populations
-    maew_hist = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_pops_hist)])*(len(binbounds)+1)
+    maew_hist = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, est_pops_hist)])
 
     #----------------------------combined grid+histogram-based population estimation----------------------------#
 
@@ -62,7 +62,7 @@ def parallel_trj_histogram_mtd(state, params):
     # plt.show()
 
     #calculate the weighted mean absolute error of the estimated bin populations
-    maew_hist_weighted = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, est_pops_hist_weighted)])*(len(binbounds)+1)
+    maew_hist_weighted = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, est_pops_hist_weighted)])
 
 
     # #----------------------------MSM-based population estimation----------------------------------#
@@ -79,7 +79,7 @@ def parallel_trj_histogram_mtd(state, params):
     eqp_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
     
     #calculate the weighted mean absolute error of the estimated bin populations
-    maew_msm = np.mean([spi*abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])*(len(binbounds)+1)
+    maew_msm = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])
 
 
     # plt.plot(grid.grid)
@@ -93,7 +93,7 @@ def parallel_trj_histogram_mtd(state, params):
 def sampler_parallel_hist_mtd(system, aggregate_simulation_limit, molecular_time_limit, save_period, n_timepoints, kT, dt, binbounds, bincenters):
 
     rate = 0.0000001*save_period
-    dT = 0.5
+    dT = 0.9
     stdev = [0.5]
 
     #determine number of parallel simulations and steps per simulation
