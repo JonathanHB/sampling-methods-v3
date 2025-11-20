@@ -25,6 +25,11 @@ def parallel_trj_histogram_mtd(state, params):
     #print(f"dynamics={t4-t3}")
 
 
+    #----------------------------------------------------------------------------------------------
+    #populations associated with grid potential so we can see how well we've filled in the energy wells
+    pops_grid_uncorrected = np.exp(grid.grid)
+    pops_grid_uncorrected /= np.sum(pops_grid_uncorrected)
+
     #------------------------estimate energies from metadynamics grid-------------------------#
 
     pops_grid = np.exp(((kT+grid.dT)/grid.dT)*grid.grid)
@@ -65,13 +70,13 @@ def parallel_trj_histogram_mtd(state, params):
     # #print(grid.grid.shape)
     # plt.show()
 
-    return (trjs, weights, grid), (pops_grid, pops_hist, pops_hist_weighted, pops_msm), False
+    return (trjs, weights, grid), (pops_grid_uncorrected, pops_grid, pops_hist, pops_hist_weighted), False
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
 def sampler_parallel_hist_mtd(system, aggregate_simulation_limit, molecular_time_limit, save_period, n_timepoints, kT, dt, binbounds, bincenters):
 
-    rate = 0.0000001*save_period
+    rate = 0.00001*save_period
     dT = 0.9
     stdev = [0.5]
 

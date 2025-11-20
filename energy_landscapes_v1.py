@@ -153,7 +153,7 @@ class unit_sine_well(potential_well_1d):
             return -1
         
     def __init__(self):
-        self.diffusion_coefficient = 1
+        self.diffusion_coefficient = 10 #fmrly 1
         self.n_macrostates = 2
         self.standard_init_coord = [-3*np.pi]
         self.standard_analysis_range = [[-20],[20]]
@@ -166,10 +166,10 @@ class deep_sine_well(potential_well_1d):
     #MFPT(10 frame save frequency) = ~70000 steps
 
     def potential(self, x):
-        return 0.0001*x**4 + 3*np.cos(x) + x/4
+        return 0.0001*x**4 + 5*np.cos(x) + x/4
         
     def F(self, x):
-        return 0.0001*-4*x**3 + 3*np.sin(x) - 1/4
+        return 0.0001*-4*x**3 + 5*np.sin(x) - 1/4
     
     def macro_class(self, x):
         thr = 2*np.pi
@@ -181,7 +181,7 @@ class deep_sine_well(potential_well_1d):
             return -1
         
     def __init__(self):
-        self.diffusion_coefficient = 1
+        self.diffusion_coefficient = 10
         self.n_macrostates = 2
         self.standard_init_coord = [-3*np.pi]
         self.standard_analysis_range = [[-22],[20]]
@@ -209,7 +209,7 @@ class hexic_well(potential_well_1d):
             return -1
         
     def __init__(self):
-        self.diffusion_coefficient = 1
+        self.diffusion_coefficient = 10
         self.n_macrostates = 2
         self.standard_init_coord = [-3*np.pi]
         self.standard_analysis_range = [[-22],[20]]
