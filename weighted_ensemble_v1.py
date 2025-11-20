@@ -355,8 +355,6 @@ def we_histogram(state, params):
     observables = cumulative_observables+new_observables
     cumulative_agg_t += sum([nobs[-1] for nobs in new_observables])*propagator.nsteps
 
-    #actual state populations
-    bin_pops, energies_norm = propagator.system.normalized_pops_energies(propagator.kT, config_binner.binbounds)
 
 
     #----------------------------histogram-based population estimation----------------------------#
@@ -370,18 +368,15 @@ def we_histogram(state, params):
 
     est_bin_pops /= np.sum(est_bin_pops)  #normalize estimated bin populations
 
-    #calculate the weighted mean absolute error of the estimated bin populations
-    maew = np.mean([abs(espi-spi) for spi, espi in zip(bin_pops, est_bin_pops)]) #*(len(config_binner.binbounds)+1)
 
     #----------------------------MSM-based population estimation----------------------------#
 
     aggregate_transitions = np.concatenate([o[2] for o in observables], axis = 1).transpose()
     eqp_msm = MSM_methods.transitions_to_eq_probs_v2(aggregate_transitions, config_binner.n_bins, show_TPM=False)
 
-    maew_msm = np.mean([abs(espi-spi) for spi, espi in zip(bin_pops, eqp_msm)]) #*(len(config_binner.binbounds)+1)
 
 
-    return (x, e, w, cb, b, propagator, observables, cumulative_agg_t), (maew, est_bin_pops, maew_msm, eqp_msm, cumulative_agg_t), cumulative_agg_t >= aggregate_simulation_limit
+    return (x, e, w, cb, b, propagator, observables, cumulative_agg_t), (est_bin_pops, eqp_msm, cumulative_agg_t), cumulative_agg_t >= aggregate_simulation_limit
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram

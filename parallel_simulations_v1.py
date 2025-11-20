@@ -20,10 +20,6 @@ def parallel_trj_histogram(state, params):
     t4 = time.time()
     #print(f"dynamics={t4-t3}")
     
-    #----------------------------true populations---------------------------------------------#
-    t1 = time.time()
-
-    pops_norm, energies_norm = system.normalized_pops_energies(kT, bincenters)
 
     #----------------------------histogram-based population estimation----------------------------#
 
@@ -36,8 +32,6 @@ def parallel_trj_histogram(state, params):
     est_bin_pops = np.histogram(trjs.flatten(), binbounds_ends, density=False)
     est_bin_pops_norm = [ebp/len(trjs.flatten()) for ebp in est_bin_pops[0]]
 
-    #calculate the weighted mean absolute error of the estimated bin populations
-    maew = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, est_bin_pops_norm)]) #*(len(binbounds)+1)
 
     #----------------------------MSM-based population estimation----------------------------------#
     
@@ -52,13 +46,10 @@ def parallel_trj_histogram(state, params):
     #build MSM
     eqp_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
     
-    #calculate the weighted mean absolute error of the estimated bin populations
-    maew_msm = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)]) #*(len(binbounds)+1)
-    
     t2 = time.time()
     #print(f"analysis={t2-t1}")
 
-    return (trjs), (maew, est_bin_pops_norm, maew_msm, eqp_msm), False
+    return (trjs), (est_bin_pops_norm, eqp_msm), False
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram

@@ -24,20 +24,11 @@ def parallel_trj_histogram_mtd(state, params):
     t4 = time.time()
     #print(f"dynamics={t4-t3}")
 
-    #----------------------------true populations---------------------------------------------#
-
-    t1 = time.time()
-    pops_norm, energies_norm = system.normalized_pops_energies(kT, bincenters)
 
     #------------------------estimate energies from metadynamics grid-------------------------#
 
-    est_populations = np.exp(((kT+grid.dT)/grid.dT)*grid.grid)
-    est_populations /= np.sum(est_populations)
-
-    maew = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, est_populations)])
-
-    t2 = time.time()
-    #print(f"analysis={t2-t1}")
+    pops_grid = np.exp(((kT+grid.dT)/grid.dT)*grid.grid)
+    pops_grid /= np.sum(pops_grid)
 
     #----------------------------histogram-based population estimation----------------------------#
 
@@ -47,23 +38,13 @@ def parallel_trj_histogram_mtd(state, params):
     #estimate state populations from histogram
     #this will have to be replaced with a binning function that works for higher dimensions. 
     # It may make sense to abstract the binner object from WE into utility and use it here too
-    est_bin_pops = np.histogram(trjs.flatten(), binbounds_ends, density=False)
-    est_pops_hist = [ebp/len(trjs.flatten()) for ebp in est_bin_pops[0]]
-
-    #calculate the weighted mean absolute error of the estimated bin populations
-    maew_hist = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, est_pops_hist)])
+    pops_hist = np.histogram(trjs.flatten(), binbounds_ends, density=False)
+    pops_hist = [ebp/len(trjs.flatten()) for ebp in pops_hist[0]]
 
     #----------------------------combined grid+histogram-based population estimation----------------------------#
 
-    est_bin_pops_weighted = np.histogram(trjs.flatten(), binbounds_ends, density=False, weights = weights.flatten())
-    est_pops_hist_weighted = [ebp/np.sum(weights) for ebp in est_bin_pops_weighted[0]]
-
-    # plt.scatter(trjs.flatten(), weights.flatten())
-    # plt.show()
-
-    #calculate the weighted mean absolute error of the estimated bin populations
-    maew_hist_weighted = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, est_pops_hist_weighted)])
-
+    pops_hist_weighted = np.histogram(trjs.flatten(), binbounds_ends, density=False, weights = weights.flatten())
+    pops_hist_weighted = [ebp/np.sum(weights) for ebp in pops_hist_weighted[0]]
 
     # #----------------------------MSM-based population estimation----------------------------------#
     
@@ -76,17 +57,15 @@ def parallel_trj_histogram_mtd(state, params):
     transitions = transitions.reshape((2, transitions.shape[1]*transitions.shape[2])).transpose()
 
     #build MSM
-    eqp_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
+    pops_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
     
-    #calculate the weighted mean absolute error of the estimated bin populations
-    maew_msm = np.mean([abs(espi-spi) for spi, espi in zip(pops_norm, eqp_msm)])
 
 
     # plt.plot(grid.grid)
     # #print(grid.grid.shape)
     # plt.show()
 
-    return (trjs, weights, grid), (maew, est_populations, maew_hist, est_pops_hist, maew_hist_weighted, est_pops_hist_weighted, maew_msm, eqp_msm), False
+    return (trjs, weights, grid), (pops_grid, pops_hist, pops_hist_weighted, pops_msm), False
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram

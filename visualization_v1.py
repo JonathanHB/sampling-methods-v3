@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 
 def plot_landscape_estimate(bincenters, est_populations, true_populations, title, xrange, yrange):
     
-    plt.figure(dpi=300)
+    #plt.figure(dpi=300)
     
     for i, esp in enumerate(est_populations):
         #plt.plot(bincenters, esp, color = str(0.8 - 0.6*i/len(est_populations))) #gray scale
