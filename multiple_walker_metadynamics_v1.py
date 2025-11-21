@@ -79,7 +79,7 @@ def parallel_trj_histogram_mtd(state, params):
 #set up and run parallel simulations and estimate the energy landscape with a histogram
 def sampler_parallel_hist_mtd(system, aggregate_simulation_limit, molecular_time_limit, save_period, n_timepoints, kT, dt, binbounds, bincenters):
 
-    dT = 10
+    dT = 1000
     stdev = [0.5]
 
     #determine number of parallel simulations and steps per simulation
