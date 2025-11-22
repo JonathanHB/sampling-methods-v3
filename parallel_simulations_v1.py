@@ -56,17 +56,27 @@ def parallel_trj_histogram(state, params):
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
-def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_limit, save_period, n_timepoints, kT, dt, binbounds, bincenters):
-    t1 = time.time()
-    #determine number of parallel simulations and steps per simulation
-    n_parallel = int(round(aggregate_simulation_limit/molecular_time_limit))
-    nsteps = int(round(aggregate_simulation_limit/(n_parallel*n_timepoints)))
+def sampler_parallel_hist(system, kT, dt, n_parallel, molecular_time_limit, save_period, n_timepoints, binbounds, bincenters):
+
+    system, kT, dt = system_args
+    n_parallel, molecular_time_limit, min_communication_interval, min_frame_save_interval = resource_args
+    n_timepoints, n_analysis_bins, binbounds, bincenters = bin_args
+
+    #determine number of steps for each parallel simulation per timepoint
+    nsteps = int(round(molecular_time_limit/n_timepoints))
+    #number of frames to save for each parallel simulation per timepoint
+    # = number of simulation segments of length save_period to run per timepoint
+    nsegs = int(round(nsteps/save_period))
+
+    #molecular and aggregate times accounting for rounding
+    actual_molecular_time = nsteps*nsegs*save_period
+    actual_aggregate_time = n_parallel*actual_molecular_time
 
     print("\n")
     print("---------------------PARALLEL---------------------")
-    print(f"running {n_parallel} parallel simulations for {nsteps*n_timepoints} steps each")
-    print(f"molecular time: {nsteps*n_timepoints} steps;  aggregate time: {nsteps*n_timepoints*n_parallel} steps")
-    print(f"data points saved: {aggregate_simulation_limit/save_period} at {save_period}-step intervals")
+    print(f"running {n_parallel} parallel simulations")
+    print(f"molecular time: {actual_molecular_time} steps;  aggregate time: {actual_aggregate_time} steps")
+    print(f"data points saved: {nsegs*n_timepoints} at {save_period}-step intervals")
 
     #initiate all simulations in the same state
     trjs = np.array([system.standard_init_coord for element in range(n_parallel)]).reshape((1, n_parallel, len(system.standard_init_coord)))
@@ -75,7 +85,7 @@ def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_lim
     t3 = time.time()
     #pack the initial state and parameters and run dynamics
     initial_state = (trjs)
-    params = (system, kT, dt, nsteps, save_period, binbounds, bincenters)
+    params = (system, kT, dt, nsegs, save_period, binbounds, bincenters)
     time_x_observables = utility_v1.run_for_n_timepoints(parallel_trj_histogram, params, initial_state, n_timepoints)
     
     t4 = time.time()
@@ -90,6 +100,12 @@ def sampler_parallel_hist(system, aggregate_simulation_limit, molecular_time_lim
 
     return observables_x_time
 
+def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, system_args, resource_args, bin_args, sampler_params):
+    system, kT, dt = system_args
+    n_parallel, molecular_time_limit, min_communication_interval, min_frame_save_interval = resource_args
+    n_timepoints, n_analysis_bins, binbounds, bincenters = bin_args
+
+    observables_x_time = sampler_parallel_hist(system, kT, dt, n_parallel, molecular_time_limit, min_frame_save_interval, n_timepoints, binbounds, bincenters)
 
 
 

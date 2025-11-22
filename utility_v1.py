@@ -22,3 +22,69 @@ def run_for_n_timepoints(analysis_method, params, initial_state, n_timepoints):
             break
 
     return method_output
+
+
+#-------------------------------------------------------------------------------------------------------------
+#bootstrapping method
+#-------------------------------------------------------------------------------------------------------------
+import numpy as np
+import matplotlib.pyplot as plt
+
+import visualization_v1
+
+def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootstrap, system_args, resource_args, bin_args, sampler, sampler_params, true_values):
+    
+    system, kT, dt = system_args
+    #n_parallel, molecular_time_limit, min_communication_interval, min_frame_save_interval = resource_args
+    n_timepoints, n_analysis_bins, binbounds, bincenters = bin_args
+    true_populations, true_energies = true_values
+
+    #bootstrap to estimate convergence times
+    #TODO this is not general; each sampler should have a n_methods variable that the bootstrapper can use to make a 2d array
+    #this will probably entail making the sampler a class (and then making the associated method run by run_for_n_timepoints into a method of that class)
+    n_methods=2
+    convergence_times = np.zeros((n_methods,n_bootstrap))
+    #convergence_times_MSM = np.zeros(n_bootstrap)
+
+    for bi in range(n_bootstrap):
+        print(f"bootstrap round {bi}\n")
+        observables_over_time = sampler(system_args, resource_args, bin_args, sampler_params)
+
+        molecular_times = observables_over_time[0]
+        aggregate_times = observables_over_time[1]
+
+        #look at convergence of each observable
+        for oi, observable in enumerate(observables_over_time[2:]):
+
+            energies = -kT*np.log(observable)
+            visualization_v1.plot_landscape_estimate(bincenters, energies, true_energies, "", xrange = (-22,20), yrange = (-5,25))
+
+            RMS_energy_errors = []
+            coverages = [] # this is the fraction of PC space within bin_width/2 of a sampled configuration
+
+            #calculate landscape coverage and energy error at each timepoint
+            for ti, populations in enumerate(observable):
+            
+                energies = -kT*np.log(populations)
+                RMS_energy_error = np.sqrt(np.mean([(e-te)**2 for e, te, p in zip(energies, true_energies, populations) if p > 0]))
+                RMS_energy_errors.append(RMS_energy_error)
+
+                coverage = sum([1 if p > 0 else 0 for p in populations])/len(populations)
+                coverages.append(coverage)
+                
+                if convergence_times[oi,bi] == 0 and coverage >= coverage_thresh and RMS_energy_error <= RMS_energy_error_thresh:
+                    convergence_times[oi,bi] = molecular_times[ti]
+
+
+            plt.plot(molecular_times, RMS_energy_errors)
+            plt.plot(molecular_times, coverages)
+            plt.legend(["RMS energy error (kT)", "fractional landscape coverage"])
+            plt.xlabel("molecular time")
+            plt.ylabel("energy error (kT) or\nlandscape coverage (dimensionless)")
+            plt.show()
+            plt.plot(molecular_times, aggregate_times)
+            plt.xlabel("molecular time")
+            plt.ylabel("aggregate time")
+            plt.show()
+
+    print(convergence_times)

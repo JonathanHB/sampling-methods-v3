@@ -60,3 +60,29 @@ def plot_landscape_estimates(le, observables_we, bincenters, kT, true_population
     #plt.imshow(energies)
     #plt.axis("equal")
     plt.show()
+
+
+def plot_convergence(landscape_estimates_plot, kT, true_populations, true_energies, molecular_time_limit, n_timepoints):
+    for le in landscape_estimates_plot:
+
+        RMS_energy_errors = []
+
+        for lei in le[0]:
+            energies = -kT*np.log(lei)
+            RMS_energy_errors.append(np.sqrt(np.mean([(e-te)**2 for e, te, p in zip(energies, true_energies, lei) if p > 0])))
+
+        #mean_absolute_error = [np.mean([abs(epi-pi) for pi, epi in zip(true_populations, est_pops)]) for est_pops in le[0]]
+        times = [int(round((t+1)*(molecular_time_limit/n_timepoints))) for t in range(len(RMS_energy_errors))]
+        
+        plt.plot(times, RMS_energy_errors)
+
+
+    plt.legend([le[1] for le in landscape_estimates_plot])
+    plt.xlabel("time")
+    plt.ylabel("root mean squared error (kT)")
+
+    plt.xlim(0,molecular_time_limit)
+    plt.ylim(0,10)
+    #plt.ylim(0,0.1)
+
+    plt.show()
