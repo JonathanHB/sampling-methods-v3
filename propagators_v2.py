@@ -49,7 +49,7 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsegs, save_period, grid):
     nd = np.array(trj_coords.shape)   #this includes both the number of trajectories and the number of dimensions
     D = system.diffusion_coefficient
     
-    grid_rates = np.full(trj_coords.shape[0], grid.rate) 
+    #grid_rates = np.full(trj_coords.shape[0], grid.rate) 
     #np.ones(trj_coords.shape[0])*grid_rates #[grid.rate for i in trj_coords]
 
     #trj_out = []
@@ -85,6 +85,7 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsegs, save_period, grid):
         #w_out.append(grid.weights(trj_coords, kT))
         
         t5 = time.time()
+        grid_rates = np.ones(trj_coords.shape[0])
         grid.update2(trj_coords, grid_rates)
         #grid.compute_forces(trj_coords)
         t6 = time.time()
@@ -110,4 +111,22 @@ def propagate_save1(system, kT, trj_coords, timestep, nsteps):
     for step in range(nsteps):
         trj_coords += D/kT * system.F(trj_coords) * timestep + np.sqrt(2*D*timestep)*np.random.normal(size=nd)
 
-    return trj_coords
+    return trj_coords, None
+
+
+
+def propagate_mtd_save1(system, kT, trj_coords, timestep, nsteps, grid, weights):
+  
+    nd = np.array(trj_coords.shape)   #this includes both the number of trajectories and the number of dimensions
+    D = system.diffusion_coefficient
+    
+    for step in range(nsteps):
+        trj_coords += D/kT * (system.F(trj_coords) + grid.compute_forces(trj_coords)) * timestep + np.sqrt(2*D*timestep)*np.random.normal(size=nd)
+
+    #calculate weights of final coordinates
+    w_out = grid.weights(trj_coords, kT)
+
+    #Update grid. Each walker deposits a gaussian of height proportional to its weight.
+    grid.update2(trj_coords, weights)
+
+    return trj_coords, w_out

@@ -227,7 +227,11 @@ def weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, en
         #Propagate dynamics
         # beware that this propagator modifies x in place
         # w is only passed in because it will be used to update metadynamics grids
-        x_md = propagator.propagate(x, w)
+        #TODO figure out if the following is needed:
+        # certain observables have to be computed after the trajectory is propagated 
+        # but before the propagator updates other internal variables like the metadynamics grid
+        # these are returned in propagator_outputs
+        x_md, prop_out = propagator.propagate(x, w)
 
         #Calculate configurational bins
         cb_md = config_binner.bin(x_md)
@@ -241,7 +245,7 @@ def weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, en
         b_md = binner.bin(cb_md, e_md)
 
         #Calculate total bin occupancies, MSM transitions, and/or whatever other observables are desired
-        observables.append(calc_observables(x_last, x_md, e_last, e_md, w, cb_last, cb_md, b_last, b_md, propagator))
+        observables.append(calc_observables(x_last, x_md, e_last, e_md, w, cb_last, cb_md, b_last, b_md, propagator, prop_out))
 
         #Split and merge trajectories
         (w, x, e, b, cb) = split_merge(w, b_md, (x_md, e_md, b_md, cb_md), walkers_per_bin)
@@ -331,7 +335,7 @@ class binner_2():
 #                                      OBSERVABLES
 
 #note that the _md variable suffix is not preserved here
-def calc_observables_1(x_last, x, e_last, e, w, cb_last, cb, b_last, b, propagator):
+def calc_observables_1(x_last, x, e_last, e, w, cb_last, cb, b_last, b, propagator, prop_out):
     #for histogram methods
     trj_config_weighted = np.stack((cb, w))
     trj_weighted = np.stack((b, w))
@@ -343,7 +347,13 @@ def calc_observables_1(x_last, x, e_last, e, w, cb_last, cb, b_last, b, propagat
     #for metadynamics
     mtd_weights = propagator.mtd_grid()  #get the metadynamics grid if it exists (otherwise None)
 
-    return (trj_config_weighted, trj_weighted, cb_transitions, bin_transitions, mtd_weights, len(w))
+    return (trj_config_weighted, trj_weighted, cb_transitions, bin_transitions, mtd_weights, prop_out, len(w))
+
+
+
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#TODO: separate the code above and below this point into separate files, analogous to how metadynamics is structured
+#vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
 
 ###################################################################################################

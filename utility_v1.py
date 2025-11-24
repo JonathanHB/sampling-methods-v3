@@ -47,7 +47,7 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
     #convergence_times_MSM = np.zeros(n_bootstrap)
 
     for bi in range(n_bootstrap):
-        print(f"bootstrap round {bi}\n")
+        print(f"bootstrap round {bi+1}\n")
         observables_over_time = sampler(system_args, resource_args, bin_args, sampler_params[:-1])
 
         molecular_times = observables_over_time[1]
