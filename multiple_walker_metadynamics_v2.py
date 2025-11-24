@@ -57,6 +57,7 @@ def parallel_trj_histogram_mtd(state, params):
 
     # #----------------------------MSM-based population estimation----------------------------------#
     
+    #TODO make weighted version of this; use it to debug weighting scheme
     #this will have to be replaced with a binning function that works for higher dimensions
     trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
     
@@ -135,7 +136,9 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
     #but without the data type/structure requirement of a numpy array
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
 
-    return observables_x_time
+    observable_names = ["grid + histogram", "masked grid"]
+
+    return observables_x_time, observable_names
 
 
 

@@ -48,7 +48,7 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
 
     for bi in range(n_bootstrap):
         print(f"bootstrap round {bi+1}\n")
-        observables_over_time = sampler(system_args, resource_args, bin_args, sampler_params[:-1])
+        observables_over_time, observable_names = sampler(system_args, resource_args, bin_args, sampler_params[:-1])
 
         molecular_times = observables_over_time[1]
         aggregate_times = observables_over_time[0]
@@ -57,7 +57,7 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
         for oi, observable in enumerate(observables_over_time[2:]):
 
             energies = -kT*np.log(observable)
-            visualization_v1.plot_landscape_estimate(bincenters, energies, true_energies, "", xrange = (-22,20), yrange = (-5,25))
+            visualization_v1.plot_landscape_estimate(bincenters, energies, true_energies, observable_names[oi], xrange = (-22,20), yrange = (-5,25))
 
             RMS_energy_errors = []
             coverages = [] # this is the fraction of PC space within bin_width/2 of a sampled configuration
@@ -75,17 +75,21 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
                 if convergence_times[oi,bi] == 0 and coverage >= coverage_thresh and RMS_energy_error <= RMS_energy_error_thresh:
                     convergence_times[oi,bi] = molecular_times[ti]
 
-
             plt.plot(molecular_times, RMS_energy_errors)
             plt.plot(molecular_times, coverages)
             plt.legend(["RMS energy error (kT)", "fractional landscape coverage"])
             plt.xlabel("molecular time")
             plt.ylabel("energy error (kT) or\nlandscape coverage (dimensionless)")
+            plt.title(observable_names[oi])
             plt.show()
-            plt.plot(molecular_times, aggregate_times)
-            plt.xlabel("molecular time")
-            plt.ylabel("aggregate time")
-            plt.show()
+
+            plot_agg_vs_mol_t = False
+            if plot_agg_vs_mol_t:
+                plt.plot(molecular_times, aggregate_times)
+                plt.xlabel("molecular time")
+                plt.ylabel("aggregate time")
+                plt.title(observable_names[oi])
+                plt.show()
 
     print(convergence_times)
 

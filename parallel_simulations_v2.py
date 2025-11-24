@@ -93,5 +93,7 @@ def sampler_parallel_hist(system_args, resource_args, bin_args, sampler_params):
     #but without the data type/structure requirement of a numpy array
     observables_over_time = [list(row) for row in zip(*observables_over_time_transposed)]
 
-    return observables_over_time
+    observable_names = ["histogram", "msm"]
+
+    return observables_over_time, observable_names
 

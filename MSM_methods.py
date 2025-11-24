@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 # states_in_order: the original state number of each state in the MSM; needed because some states are removed by ergodic trimming
 #    states_in_order[i] = the original state number of the i-th state in the MSM
 
-def transitions_2_msm(transitions):
+def transitions_2_msm(transitions, weights=None):
     
     #-----------------------------------------
     #ergodic trimming
@@ -70,9 +70,15 @@ def transitions_2_msm(transitions):
     #count transitions
     transition_counts = np.zeros((n_states, n_states))
     
-    for tr in transitions:
-        if tr[0] in states_in_order and tr[1] in states_in_order:
-            transition_counts[state_to_ind[tr[1]]][state_to_ind[tr[0]]] += 1
+    #weight all transitions equally if no weights are supplied
+    if weights is None:
+        for tr in transitions:
+            if tr[0] in states_in_order and tr[1] in states_in_order:
+                transition_counts[state_to_ind[tr[1]]][state_to_ind[tr[0]]] += 1
+    else:
+        for tri, tr in enumerate(transitions):
+            if tr[0] in states_in_order and tr[1] in states_in_order:
+                transition_counts[state_to_ind[tr[1]]][state_to_ind[tr[0]]] += weights[tri]
         
     #-----------------------------------------
     #connectivity trimming 
@@ -210,9 +216,9 @@ def transitions_to_eq_probs(transitions, bincenters, show_TPM=False):
 
 
 
-def transitions_to_eq_probs_v2(transitions, nstates, show_TPM=False):
+def transitions_to_eq_probs_v2(transitions, nstates, weights=None, show_TPM=False):
     
-    tpm, states_in_order = transitions_2_msm(transitions)
+    tpm, states_in_order = transitions_2_msm(transitions, weights)
     if show_TPM:
         plt.matshow(tpm)
         plt.show()
