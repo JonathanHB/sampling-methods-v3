@@ -42,16 +42,16 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
     #bootstrap to estimate convergence times
     #TODO this is not general; each sampler should have a n_methods variable that the bootstrapper can use to make a 2d array
     #this will probably entail making the sampler a class (and then making the associated method run by run_for_n_timepoints into a method of that class)
-    n_methods=2
+    n_methods=sampler_params[-1]
     convergence_times = np.zeros((n_methods,n_bootstrap))
     #convergence_times_MSM = np.zeros(n_bootstrap)
 
     for bi in range(n_bootstrap):
         print(f"bootstrap round {bi}\n")
-        observables_over_time = sampler(system_args, resource_args, bin_args, sampler_params)
+        observables_over_time = sampler(system_args, resource_args, bin_args, sampler_params[:-1])
 
-        molecular_times = observables_over_time[0]
-        aggregate_times = observables_over_time[1]
+        molecular_times = observables_over_time[1]
+        aggregate_times = observables_over_time[0]
 
         #look at convergence of each observable
         for oi, observable in enumerate(observables_over_time[2:]):
@@ -88,3 +88,7 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
             plt.show()
 
     print(convergence_times)
+
+    for c in convergence_times:
+        print(np.mean(c))
+        print(np.std(c))

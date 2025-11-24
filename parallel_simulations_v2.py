@@ -52,6 +52,8 @@ def parallel_trj_histogram(state, params):
 #set up and run parallel simulations and estimate the energy landscape with a histogram
 def sampler_parallel_hist(system_args, resource_args, bin_args, sampler_params):
 
+    #----------------------------------input handling--------------------------------
+
     system, kT, dt = system_args
     n_parallel, molecular_time_limit, min_communication_interval, save_period = resource_args
     n_timepoints, n_analysis_bins, binbounds, bincenters = bin_args
@@ -70,7 +72,9 @@ def sampler_parallel_hist(system_args, resource_args, bin_args, sampler_params):
     print("---------------------PARALLEL---------------------")
     print(f"running {n_parallel} parallel simulations")
     print(f"molecular time: {actual_molecular_time} steps;  aggregate time: {actual_aggregate_time} steps")
-    print(f"data points saved: {nsegs*n_timepoints} at {save_period}-step intervals")
+    print(f"data points saved: {nsegs*n_timepoints*n_parallel} at {save_period}-step intervals")
+
+    #--------------------------------set up and run system-----------------------------
 
     #initiate all simulations in the same state
     trjs = np.array([system.standard_init_coord for element in range(n_parallel)]).reshape((1, n_parallel, len(system.standard_init_coord)))

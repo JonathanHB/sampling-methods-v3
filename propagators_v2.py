@@ -43,7 +43,7 @@ def propagate(system, kT, trj_coords, timestep, nsegs, save_period):
 
 
 #nsteps must be an integer multiple of save_period
-def propagate_mtd(system, kT, trj_coords, timestep, nsteps, save_period, grid):
+def propagate_mtd(system, kT, trj_coords, timestep, nsegs, save_period, grid):
   
     t1 = time.time()
     nd = np.array(trj_coords.shape)   #this includes both the number of trajectories and the number of dimensions
@@ -55,13 +55,13 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsteps, save_period, grid):
     #trj_out = []
     #w_out = []
 
-    trj_out = np.zeros((nsteps//save_period, trj_coords.shape[0], trj_coords.shape[1]))
-    w_out = np.zeros((nsteps//save_period, trj_coords.shape[0]))
+    trj_out = np.zeros((nsegs, trj_coords.shape[0], trj_coords.shape[1]))
+    w_out = np.zeros((nsegs, trj_coords.shape[0]))
 
     fc = 0
     updates = 0
 
-    for i in range(nsteps//save_period):
+    for i in range(nsegs):
     
         for step in range(save_period):
 

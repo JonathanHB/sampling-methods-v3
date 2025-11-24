@@ -49,23 +49,23 @@ class grid():
         self.grid_coords = [gci for gci in itertools.product(*[[r for r in range(nbi)] for nbi in self.nbins])]
 
 
-    # super slow do not use
-    # Update the grid based on the new position
-    def update(self, trjs, weights):
-        t1 = time.time()
-        #calculate the magnitude of the gaussian associated with every trajectory point in every grid bin
-        for bc, gc in zip(self.bincenters, self.grid_coords):
-            for x, w in zip(trjs, weights):
+    # # super slow do not use
+    # # Update the grid based on the new position
+    # def update(self, trjs, weights):
+    #     t1 = time.time()
+    #     #calculate the magnitude of the gaussian associated with every trajectory point in every grid bin
+    #     for bc, gc in zip(self.bincenters, self.grid_coords):
+    #         for x, w in zip(trjs, weights):
 
-                expterm = np.multiply(np.array(bc)-np.array(x), self.invstds)
-                self.grid[gc] += w * np.prod(self.invstds) * (2*np.pi)**(-self.dim/2) * np.exp(-0.5*np.dot(expterm, expterm))
-        t2 = time.time()
-        print(f"potential update={t2-t1}")
-        #updating forces here is only practical because all dimensions are part of the progress coordinate; 
-        # if there were many other dimensions orthogonal to the progress coordinate, I don't think it would work
-        self.forcegrids = -np.gradient(self.grid, self.binwidth).reshape([self.dim]+self.nbins)
-        t3 = time.time()
-        print(f"force update={t3-t2}")
+    #             expterm = np.multiply(np.array(bc)-np.array(x), self.invstds)
+    #             self.grid[gc] += w * np.prod(self.invstds) * (2*np.pi)**(-self.dim/2) * np.exp(-0.5*np.dot(expterm, expterm))
+    #     t2 = time.time()
+    #     print(f"potential update={t2-t1}")
+    #     #updating forces here is only practical because all dimensions are part of the progress coordinate; 
+    #     # if there were many other dimensions orthogonal to the progress coordinate, I don't think it would work
+    #     self.forcegrids = -np.gradient(self.grid, self.binwidth).reshape([self.dim]+self.nbins)
+    #     t3 = time.time()
+    #     print(f"force update={t3-t2}")
 
 
     def compute_forces(self, trjs):
@@ -169,9 +169,11 @@ class grid():
         # print(exps)
         # print("exps")
         # print(exps.shape)
-
-        tempered_exps = np.multiply(exps, w0)
-
+        tempered = False
+        if tempered:
+            tempered_exps = np.multiply(exps, w0)
+        else:
+            tempered_exps = exps
         # print(tempered_exps.shape)
 
         #this is a great way of visualizing gaussian deposition for 1d PCs
