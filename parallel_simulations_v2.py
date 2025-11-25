@@ -46,7 +46,7 @@ def parallel_trj_histogram(state, params):
     cumulative_molecular_time += nsegs*save_period
     cumulative_aggregate_time += n_parallel*nsegs*save_period
 
-    return (trjs, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, est_bin_pops_norm, eqp_msm), False
+    return (trjs, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, eqp_msm, est_bin_pops_norm), False
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
@@ -93,7 +93,7 @@ def sampler_parallel_hist(system_args, resource_args, bin_args, sampler_params):
     #but without the data type/structure requirement of a numpy array
     observables_over_time = [list(row) for row in zip(*observables_over_time_transposed)]
 
-    observable_names = ["histogram", "msm"]
+    observable_names = ["msm", "histogram"]
 
     return observables_over_time, observable_names
 

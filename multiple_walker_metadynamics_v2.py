@@ -58,7 +58,9 @@ def parallel_trj_histogram_mtd(state, params):
 
     #----------------------------MSM-based population estimation----------------------------------#
     
-    transition_weights = np.sqrt(np.divide(weights[1:].flatten(), weights_before[1:].flatten()))
+    transition_weights = np.multiply(weights[1:].flatten(), weights_before[1:].flatten())
+
+    #transition_weights = np.sqrt(np.divide(weights[1:].flatten(), weights_before[1:].flatten()))
 
     #TODO make weighted version of this; use it to debug weighting scheme
     #this will have to be replaced with a binning function that works for higher dimensions
@@ -78,21 +80,21 @@ def parallel_trj_histogram_mtd(state, params):
     #build MSM
     pops_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, weights=transition_weights, show_TPM=False)
     
-    #----------------------------MSM with nearby transitions only----------------------------#
+    # #----------------------------MSM with nearby transitions only----------------------------#
 
-    #this does not work very well
-    transitions_nearby = np.array([tr for tr in transitions if abs(tr[0]-tr[1]) < 5])
-    transition_weights_nearby = np.array([w for tr, w in zip(transitions, transition_weights) if abs(tr[0]-tr[1]) < 5])
-    # print(transitions_nearby.shape)
-    # print(transition_weights_nearby.shape)
+    # #this does not work very well
+    # transitions_nearby = np.array([tr for tr in transitions if abs(tr[0]-tr[1]) < 5])
+    # transition_weights_nearby = np.array([w for tr, w in zip(transitions, transition_weights) if abs(tr[0]-tr[1]) < 5])
+    # # print(transitions_nearby.shape)
+    # # print(transition_weights_nearby.shape)
 
-    pops_msm_nearby = MSM_methods.transitions_to_eq_probs_v2(transitions_nearby, len(binbounds)+1, weights=transition_weights_nearby, show_TPM=False)
+    # pops_msm_nearby = MSM_methods.transitions_to_eq_probs_v2(transitions_nearby, len(binbounds)+1, weights=transition_weights_nearby, show_TPM=False)
 
 
     cumulative_molecular_time += nsegs*save_period
     cumulative_aggregate_time += n_parallel*nsegs*save_period
 
-    return (trjs, weights, weights_before, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_grid_masked, pops_msm, pops_msm_nearby), False #pops_grid_uncorrected, pops_hist, pops_grid, 
+    return (trjs, weights, weights_before, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_grid_masked, pops_msm), False #pops_grid_uncorrected, pops_hist, pops_grid, 
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
