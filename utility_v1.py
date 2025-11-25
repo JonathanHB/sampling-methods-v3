@@ -35,7 +35,7 @@ import visualization_v1
 def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootstrap, system_args, resource_args, bin_args, sampler, sampler_params, true_values):
     
     system, kT, dt = system_args
-    #n_parallel, molecular_time_limit, min_communication_interval, min_frame_save_interval = resource_args
+    n_parallel, molecular_time_limit, min_communication_interval, min_frame_save_interval = resource_args
     n_timepoints, n_analysis_bins, binbounds, bincenters = bin_args
     true_populations, true_energies = true_values
 
@@ -81,6 +81,8 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
             plt.xlabel("molecular time")
             plt.ylabel("energy error (kT) or\nlandscape coverage (dimensionless)")
             plt.title(observable_names[oi])
+            plt.ylim(0,2)
+            plt.xlim(0, molecular_time_limit)
             plt.show()
 
             plot_agg_vs_mol_t = False

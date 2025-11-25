@@ -13,14 +13,15 @@ import time
 def parallel_trj_histogram_mtd(state, params):
     
     #unpack inputs
-    trjs, weights, grid, cumulative_aggregate_time, cumulative_molecular_time = state #this is unnecessarily complicated but keeps the same structure as other methods
+    trjs, weights, weights_before, grid, cumulative_aggregate_time, cumulative_molecular_time = state #this is unnecessarily complicated but keeps the same structure as other methods
     system, kT, dt, nsegs, save_period, n_parallel, binbounds, bincenters = params
 
     #t3 = time.time()
     #run dynamics
-    new_trjs, new_weights, grid = propagators_v2.propagate_mtd(system, kT, trjs[-1].copy(), dt, nsegs, save_period, grid)
+    new_trjs, new_weights, new_weights_before, grid = propagators_v2.propagate_mtd(system, kT, trjs[-1].copy(), dt, nsegs, save_period, grid)
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
     weights = np.concatenate((weights, new_weights), axis = 0)
+    weights_before = np.concatenate((weights_before, new_weights_before), axis = 0)
     #t4 = time.time()
     #print(f"dynamics={t4-t3}")
 
@@ -55,8 +56,10 @@ def parallel_trj_histogram_mtd(state, params):
     pops_hist_weighted = np.histogram(trjs.flatten(), binbounds_ends, density=False, weights = weights.flatten())
     pops_hist_weighted = [ebp/np.sum(weights) for ebp in pops_hist_weighted[0]]
 
-    # #----------------------------MSM-based population estimation----------------------------------#
+    #----------------------------MSM-based population estimation----------------------------------#
     
+    transition_weights = np.sqrt(np.divide(weights[1:].flatten(), weights_before[1:].flatten()))
+
     #TODO make weighted version of this; use it to debug weighting scheme
     #this will have to be replaced with a binning function that works for higher dimensions
     trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
@@ -66,14 +69,30 @@ def parallel_trj_histogram_mtd(state, params):
     transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:]))
     transitions = transitions.reshape((2, transitions.shape[1]*transitions.shape[2])).transpose()
 
+    # plt.hist(transitions[:,1]-transitions[:,0], nbins = 20)
+    # plt.show()
+    # print("=============================================")
+    # print(transitions.shape)
+    # print(transition_weights.shape)
+
     #build MSM
-    pops_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, show_TPM=False)
+    pops_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, weights=transition_weights, show_TPM=False)
     
+    #----------------------------MSM with nearby transitions only----------------------------#
+
+    #this does not work very well
+    transitions_nearby = np.array([tr for tr in transitions if abs(tr[0]-tr[1]) < 5])
+    transition_weights_nearby = np.array([w for tr, w in zip(transitions, transition_weights) if abs(tr[0]-tr[1]) < 5])
+    # print(transitions_nearby.shape)
+    # print(transition_weights_nearby.shape)
+
+    pops_msm_nearby = MSM_methods.transitions_to_eq_probs_v2(transitions_nearby, len(binbounds)+1, weights=transition_weights_nearby, show_TPM=False)
+
 
     cumulative_molecular_time += nsegs*save_period
     cumulative_aggregate_time += n_parallel*nsegs*save_period
 
-    return (trjs, weights, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_grid_masked), False #pops_grid_uncorrected, pops_hist, pops_grid, 
+    return (trjs, weights, weights_before, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_grid_masked, pops_msm, pops_msm_nearby), False #pops_grid_uncorrected, pops_hist, pops_grid, 
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
@@ -124,11 +143,12 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
     #initiate all simulations in the same state
     trjs = np.array([system.standard_init_coord for element in range(n_parallel)]).reshape((1, n_parallel, len(system.standard_init_coord)))
     init_weights = np.repeat(1, n_parallel).reshape((1, n_parallel)) #surely there is a better way to do this with tile or something
+    init_weights_before = np.repeat(1, n_parallel).reshape((1, n_parallel))
 
     grid = metadynamics_v1.grid(system.standard_analysis_range, len(binbounds)-1, rate, dT, stdev)
 
     #pack the initial state and parameters and run dynamics
-    initial_state = (trjs, init_weights, grid, 0, 0)
+    initial_state = (trjs, init_weights, init_weights_before, grid, 0, 0)
     params = (system, kT, dt, nsegs, save_period, n_parallel, binbounds, bincenters)
     time_x_observables = utility_v1.run_for_n_timepoints(parallel_trj_histogram_mtd, params, initial_state, n_timepoints)
 
@@ -136,7 +156,7 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
     #but without the data type/structure requirement of a numpy array
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
 
-    observable_names = ["grid + histogram", "masked grid"]
+    observable_names = ["grid + histogram", "masked grid", "msm", "MSM nearby"]
 
     return observables_x_time, observable_names
 

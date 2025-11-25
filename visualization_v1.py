@@ -14,7 +14,7 @@ def plot_landscape_estimate(bincenters, est_populations, true_populations, title
     plt.plot(bincenters, true_populations, color="black")
     plt.title(title)
     plt.xlabel("position")
-    plt.ylabel("population")
+    plt.ylabel("free energy (kT)")
 
     plt.xlim(xrange)
     plt.ylim(yrange)

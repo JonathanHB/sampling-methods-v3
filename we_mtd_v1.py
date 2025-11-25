@@ -35,11 +35,11 @@ def we_mtd_histogram(state, params):
     #TODO: add support for different WE and analysis bins, which is currently (and deceptively) half done
     
     #unpack inputs
-    x, e, w, cb, b, prop_out, propagator, cumulative_observables, cumulative_aggregate_time, cumulative_molecular_time = state
+    x, e, w, cb, b, propagator, cumulative_observables, cumulative_aggregate_time, cumulative_molecular_time = state
     split_merge, config_binner, ensemble_classifier, binner, calc_observables, nrounds, walkers_per_bin, aggregate_simulation_limit = params
 
     #run dynamics
-    x, e, w, cb, b, prop_out, propagator, new_observables = weighted_ensemble_v2.weighted_ensemble(x, e, w, cb, b, prop_out, propagator, split_merge, config_binner, ensemble_classifier, binner, calc_observables, nrounds, walkers_per_bin)
+    x, e, w, cb, b, propagator, new_observables = weighted_ensemble_v2.weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, ensemble_classifier, binner, calc_observables, nrounds, walkers_per_bin)
 
     #update cumulative observables and aggregate time
     observables = cumulative_observables+new_observables
@@ -67,7 +67,7 @@ def we_mtd_histogram(state, params):
 
     #----------------------------mtd-weighted MSM-based population estimation----------------------------#
 
-    mtd_transition_weights = np.concatenate([o[6] for o in observables])
+    mtd_transition_weights = np.concatenate([o[5] for o in observables])
     eqp_msm_weighted = MSM_methods.transitions_to_eq_probs_v2(aggregate_transitions, config_binner.n_bins, weights=mtd_transition_weights, show_TPM=False)
 
 
@@ -85,7 +85,7 @@ def we_mtd_histogram(state, params):
 
     #----------------------------combined grid+histogram-based population estimation----------------------------#
 
-    cumulative_mtd_weights = np.concatenate([o[5] for o in observables])
+    cumulative_mtd_weights = np.concatenate([o[4] for o in observables])
 
     pops_hist_mtd = np.zeros(config_binner.n_bins)  #initialize estimated bin populations to 0
     for cbi, cmtdw in zip(cumulative_config_bins, cumulative_mtd_weights):
@@ -104,7 +104,7 @@ def we_mtd_histogram(state, params):
 
     pops_hist_we_mtd /= np.sum(pops_hist_we_mtd)  #normalize estimated bin populations
 
-    return (x, e, w, cb, b, prop_out, propagator, observables, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, eqp_msm_weighted, pops_hist_mtd), cumulative_aggregate_time >= aggregate_simulation_limit
+    return (x, e, w, cb, b, propagator, observables, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_mtd, eqp_msm_weighted), cumulative_aggregate_time >= aggregate_simulation_limit
 
 
 ########################################  MAIN SAMPLER CLASS  ########################################
@@ -160,12 +160,12 @@ def sampler_we_mtd(system_args, resource_args, bin_args, sampler_params):
     w0 = [1/walkers_per_bin for element in range(walkers_per_bin)]
     cb0 = config_binner.bin(x0)  #configurational bins
     b0 = binner.bin(cb0, e0)
-    prop_out_0 = [1 for element in range(walkers_per_bin)]
+    #prop_out_0 = [1 for element in range(walkers_per_bin)]
 
     cumulative_observables0 = []  #list of lists; each sublist contains the observables calculated at each WE round
 
     #pack the initial state and parameters and run dynamics
-    initial_state = (x0, e0, w0, cb0, b0, prop_out_0, propagator0, cumulative_observables0, 0, 0) #the final 0 is the initial aggregate simulation time
+    initial_state = (x0, e0, w0, cb0, b0, propagator0, cumulative_observables0, 0, 0) #the final 0 is the initial aggregate simulation time
     params = (weighted_ensemble_v2.split_merge, config_binner, ensemble_classifier, binner, weighted_ensemble_v2.calc_observables_1, n_rounds_per_timepoint, walkers_per_bin, max_actual_aggregate_time)
     time_x_observables = utility_v1.run_for_n_timepoints(we_mtd_histogram, params, initial_state, n_timepoints)
 
