@@ -22,8 +22,10 @@ def parallel_trj_histogram_mtd(state, params):
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
     weights = np.concatenate((weights, new_weights), axis = 0)
     weights_before = np.concatenate((weights_before, new_weights_before), axis = 0)
-    #t4 = time.time()
-    #print(f"dynamics={t4-t3}")
+
+    total_mtd_weights = np.sum(np.sqrt(np.multiply(weights, weights_before)), axis=1) #np.sum(weights_before, axis=1) + np.sum(weights, axis=1)
+
+    weights_tiled = np.tile(total_mtd_weights, [n_parallel,1]).transpose()
 
     #----------------------------------------------------------------------------------------------
     #populations associated with grid potential so we can see how well we've filled in the energy wells
@@ -58,7 +60,11 @@ def parallel_trj_histogram_mtd(state, params):
 
     #----------------------------MSM-based population estimation----------------------------------#
     
-    transition_weights = np.multiply(weights[1:].flatten(), weights_before[1:].flatten())
+    #this needs a sqrt and a partition function, especially since mtd is untempered. try:
+    #transition_weights = np.sqrt(np.divide(np.multiply(weights[1:].flatten(), weights_before[1:].flatten()), partition_functions))
+    transition_weights = np.divide(np.sqrt(np.multiply(weights[1:].flatten(), weights_before[1:].flatten())), weights_tiled[1:].flatten())
+    print(sum(transition_weights))
+    print(sum(transition_weights)/len(transition_weights))
 
     #transition_weights = np.sqrt(np.divide(weights[1:].flatten(), weights_before[1:].flatten()))
 

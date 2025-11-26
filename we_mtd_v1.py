@@ -95,7 +95,8 @@ def we_mtd_histogram(state, params):
     
 
     #----------------------------combined grid+histogram+we weight-based population estimation----------------------------#
-
+    #this did not work well because WE weights are too noisy
+    
     cumulative_mtd_weights = np.concatenate([o[5] for o in observables])
 
     pops_hist_we_mtd = np.zeros(config_binner.n_bins)  #initialize estimated bin populations to 0
@@ -104,7 +105,7 @@ def we_mtd_histogram(state, params):
 
     pops_hist_we_mtd /= np.sum(pops_hist_we_mtd)  #normalize estimated bin populations
 
-    return (x, e, w, cb, b, propagator, observables, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_mtd, eqp_msm_weighted), cumulative_aggregate_time >= aggregate_simulation_limit
+    return (x, e, w, cb, b, propagator, observables, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, eqp_msm_weighted, pops_hist_mtd), cumulative_aggregate_time >= aggregate_simulation_limit
 
 
 ########################################  MAIN SAMPLER CLASS  ########################################
@@ -177,6 +178,6 @@ def sampler_we_mtd(system_args, resource_args, bin_args, sampler_params):
     print(f"aggregate simulation time: {final_aggregate_time} steps")
     print(f"aggregate number of walkers = number of data points saved = {final_aggregate_time/min_communication_interval} at {min_communication_interval}-step intervals")
 
-    estimate_names = ["grid + histogram", "weighted msm"] #["histogram", "msm", "weighted msm", "grid_masked", "grid + histogram"]#, "grid + histogram + we"]
+    estimate_names = ["weighted msm", "grid + histogram"] #["histogram", "msm", "weighted msm", "grid_masked", "grid + histogram"]#, "grid + histogram + we"]
 
     return observables_x_time, estimate_names

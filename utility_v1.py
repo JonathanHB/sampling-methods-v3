@@ -131,7 +131,7 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
             coverages = [coverage_trjs[oi][bi][t] for bi in range(n_bootstrap) if len(coverage_trjs[oi][bi])>t]
             errors = [error_trjs[oi][bi][t] for bi in range(n_bootstrap) if len(error_trjs[oi][bi])>t]
 
-            if len(coverages) > 1:
+            if len(coverages) == n_bootstrap:
                 bs_times_.append(mol_time_trjs[oi][max_t_round][t])
 
                 bs_mean_coverage_.append(np.mean(coverages))
