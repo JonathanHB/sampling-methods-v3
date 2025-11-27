@@ -1,6 +1,8 @@
 from collections import Counter
 import numpy as np
 
+from sklearn.preprocessing import normalize
+
 import metadynamics_v1
 import propagators_v2
 import utility_v1
@@ -13,15 +15,17 @@ import time
 def parallel_trj_histogram_mtd(state, params):
     
     #unpack inputs
-    trjs, weights, weights_before, grid, cumulative_aggregate_time, cumulative_molecular_time = state #this is unnecessarily complicated but keeps the same structure as other methods
+    trjs, weights, weights_before, grid_weights, grid, cumulative_aggregate_time, cumulative_molecular_time = state #this is unnecessarily complicated but keeps the same structure as other methods
     system, kT, dt, nsegs, save_period, n_parallel, binbounds, bincenters = params
 
     #t3 = time.time()
     #run dynamics
-    new_trjs, new_weights, new_weights_before, grid = propagators_v2.propagate_mtd(system, kT, trjs[-1].copy(), dt, nsegs, save_period, grid)
+    new_trjs, new_weights, new_weights_before, new_grid_weights, grid = propagators_v2.propagate_mtd(system, kT, trjs[-1].copy(), dt, nsegs, save_period, grid)
     trjs = np.concatenate((trjs, new_trjs), axis = 0)
     weights = np.concatenate((weights, new_weights), axis = 0)
     weights_before = np.concatenate((weights_before, new_weights_before), axis = 0)
+    grid_weights = np.concatenate((grid_weights, new_grid_weights), axis = 0)
+    print(grid_weights.shape)
 
     total_mtd_weights = np.sum(np.sqrt(np.multiply(weights, weights_before)), axis=1) #np.sum(weights_before, axis=1) + np.sum(weights, axis=1)
 
@@ -54,17 +58,56 @@ def parallel_trj_histogram_mtd(state, params):
     pops_grid_masked /= np.sum(pops_grid_masked)
 
     #----------------------------combined grid+histogram-based population estimation----------------------------#
-
+    #TODO is this dominated by weights of newer trajectories? Is the fact that these weights are not normalized a problem?
     pops_hist_weighted = np.histogram(trjs.flatten(), binbounds_ends, density=False, weights = weights.flatten())
     pops_hist_weighted = [ebp/np.sum(weights) for ebp in pops_hist_weighted[0]]
 
     #----------------------------MSM-based population estimation----------------------------------#
+    print("vvvvvvvvvvvvvvvvvvvvvvvvv")
+    #this will have to be replaced with a binning function that works for higher dimensions
+    trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
     
+    #calculate transitions by stacking the bin array with a time-shifted copy of itself
+    transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:]))
+    print(transitions.shape)
+
+    n_states = len(binbounds)+1
+
+    #all reweighted transition probability matrices, for averaging
+    Puv_all = []
+
+    #calculate reweighted TPMs for every round
+    for t in range(len(trjs)-1):
+
+        #count transitions
+        transition_counts = np.zeros((n_states, n_states))
+        for tr in transitions[t]:
+            transition_counts[tr[1]][tr[0]] += 1
+
+        #normalize transition count matrix to transition rate matrix
+        #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
+        # so that the probability associated with each element of X(t) is preserved 
+        # (though not all at one index) when X(t) is multiplied by the TPM
+        tpm = normalize(transition_counts, axis=0, norm='l1')
+
+        reweight_matrix = np.matmul(np.invert(grid_weights[t]), grid_weights[t].reshape((len(grid_weights[t],1))))
+
+
+
+
+
+
+    print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+
+
+
+    #----------------------------MSM-based population estimation----------------------------------#
+
     #this needs a sqrt and a partition function, especially since mtd is untempered. try:
     #transition_weights = np.sqrt(np.divide(np.multiply(weights[1:].flatten(), weights_before[1:].flatten()), partition_functions))
     transition_weights = np.divide(np.sqrt(np.multiply(weights[1:].flatten(), weights_before[1:].flatten())), weights_tiled[1:].flatten())
-    print(sum(transition_weights))
-    print(sum(transition_weights)/len(transition_weights))
+    # print(sum(transition_weights))
+    # print(sum(transition_weights)/len(transition_weights))
 
     #transition_weights = np.sqrt(np.divide(weights[1:].flatten(), weights_before[1:].flatten()))
 
@@ -155,8 +198,10 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
 
     grid = metadynamics_v1.grid(system.standard_analysis_range, len(binbounds)-1, rate, dT, stdev)
 
+    init_grid_weights = grid.grid_weights(kT)
+
     #pack the initial state and parameters and run dynamics
-    initial_state = (trjs, init_weights, init_weights_before, grid, 0, 0)
+    initial_state = (trjs, init_weights, init_weights_before, init_grid_weights, grid, 0, 0)
     params = (system, kT, dt, nsegs, save_period, n_parallel, binbounds, bincenters)
     time_x_observables = utility_v1.run_for_n_timepoints(parallel_trj_histogram_mtd, params, initial_state, n_timepoints)
 

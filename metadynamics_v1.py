@@ -105,6 +105,11 @@ class grid():
         return np.exp(energies/kT)
     
 
+    def grid_weights(self, kT):
+
+        return np.exp(-self.grid/kT)/np.sum(np.exp(-self.grid/kT))
+
+
     #fully vectorized parallel grid update code for multiple walkers and PC dimensions
     def update2(self, coords, arg_weights):
 
