@@ -135,7 +135,7 @@ def transitions_2_msm(transitions, weights=None):
 
 def tpm_2_eqprobs(msm_tpm, print_convergence_time=False):
 
-    #get tpm eigenvalues to find state probabilities
+    #get tpm eigenvalues and eigenvectors to find state probabilities
     msm_eigs = np.linalg.eig(msm_tpm)
         
     #make sure we're getting the correct eigenvector with eigenvalue 1

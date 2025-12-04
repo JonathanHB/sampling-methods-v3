@@ -25,7 +25,7 @@ def parallel_trj_histogram_mtd(state, params):
     weights = np.concatenate((weights, new_weights), axis = 0)
     weights_before = np.concatenate((weights_before, new_weights_before), axis = 0)
     grid_weights = np.concatenate((grid_weights, new_grid_weights), axis = 0)
-    print(grid_weights.shape)
+    #print(grid_weights.shape)
 
     total_mtd_weights = np.sum(np.sqrt(np.multiply(weights, weights_before)), axis=1) #np.sum(weights_before, axis=1) + np.sum(weights, axis=1)
 
@@ -63,18 +63,21 @@ def parallel_trj_histogram_mtd(state, params):
     pops_hist_weighted = [ebp/np.sum(weights) for ebp in pops_hist_weighted[0]]
 
     #----------------------------MSM-based population estimation----------------------------------#
-    print("vvvvvvvvvvvvvvvvvvvvvvvvv")
+    #print("vvvvvvvvvvvvvvvvvvvvvvvvv")
     #this will have to be replaced with a binning function that works for higher dimensions
     trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
-    
+    #print(trjs_ditigized.shape)
+
     #calculate transitions by stacking the bin array with a time-shifted copy of itself
-    transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:]))
-    print(transitions.shape)
+    transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:])).transpose(1,2,0)
+    #print(transitions.shape)
 
     n_states = len(binbounds)+1
 
     #all reweighted transition probability matrices, for averaging
-    Puv_all = []
+    Puv_all = [] #TODO: rename; this is misnamed relative to my notebook contents
+
+    sum_vs_time = []
 
     #calculate reweighted TPMs for every round
     for t in range(len(trjs)-1):
@@ -83,21 +86,71 @@ def parallel_trj_histogram_mtd(state, params):
         transition_counts = np.zeros((n_states, n_states))
         for tr in transitions[t]:
             transition_counts[tr[1]][tr[0]] += 1
+        
+        transition_counts_s = (transition_counts+transition_counts.transpose())/2
 
+        # plt.imshow(transition_counts)
+        # plt.title(f"tcm {t}")
+        # plt.show()
         #normalize transition count matrix to transition rate matrix
         #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
         # so that the probability associated with each element of X(t) is preserved 
         # (though not all at one index) when X(t) is multiplied by the TPM
-        tpm = normalize(transition_counts, axis=0, norm='l1')
+        tpm = normalize(transition_counts_s, axis=0, norm='l1')
+        # plt.imshow(tpm)
+        # plt.title(f"tpm {t}")
+        # plt.show()
 
-        reweight_matrix = np.matmul(np.invert(grid_weights[t]), grid_weights[t].reshape((len(grid_weights[t],1))))
+        # print(np.reciprocal(grid_weights[t]))
+        # print(grid_weights[t][:, np.newaxis])
+
+        #[:, np.newaxis] makes a row vector into a column vector
+        reweight_matrix = np.outer(grid_weights[t], np.reciprocal(grid_weights[t]))
+
+        # if t%100 == 0:
 
 
+        #print(reweight_matrix.shape)
+        Puv = np.multiply(reweight_matrix, tpm)
+        #Puv/= np.sum(Puv) < # I think this is wrong but the math requires more investigation
+        
+        if t == len(trjs)-2 and False:
+            print(t)
+            plt.imshow(reweight_matrix, vmin = 0, vmax = 2)
+            plt.title(f"rwm {t}")
+            plt.show()
+            
+            print(f"total {np.sum(Puv)}")
+            plt.plot(grid_weights[t])
+            plt.show()
+
+        Puv_all.append(Puv)
+
+        sum_vs_time.append(np.sum(Puv))
+
+    puv_arr = np.array(Puv_all)
+    #print(puv_arr.shape)
+
+    #TODO weight this mean by the number of counts in each column (different columns are weighted differently) 
+    # to account for the different times at which the states were first sampled
+    # if this is not done the later sampled states have lower mean transition "probabilities" overall which will affect the eigenvalue
+    # when building a normal MSM this is not an issue because column normalization means that several rounds in which there are 
+    # no transitions out of a state do not affect the probabilities from that state relative to other states (columns)
+    # whereas when averaging here it lowers all the outgoing probabilities
+    # and this can't be fixed by normalization because the matrix called Puv here (really Pu) is not supposed to be normalized
+    puv_mean = np.mean(puv_arr, axis=0)
+
+    # plt.imshow(puv_mean)
+    # plt.show()
+
+    plt.plot(sum_vs_time)
+    plt.show()
+
+    pops_msm_v2 = MSM_methods.tpm_2_eqprobs(puv_mean)
+    pops_msm_v2 /= np.sum(pops_msm_v2)
 
 
-
-
-    print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+    #print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
 
 
 
@@ -105,11 +158,18 @@ def parallel_trj_histogram_mtd(state, params):
 
     #this needs a sqrt and a partition function, especially since mtd is untempered. try:
     #transition_weights = np.sqrt(np.divide(np.multiply(weights[1:].flatten(), weights_before[1:].flatten()), partition_functions))
+    
+    #most recent:
+    #this seems to work the best but IDK why
     transition_weights = np.divide(np.sqrt(np.multiply(weights[1:].flatten(), weights_before[1:].flatten())), weights_tiled[1:].flatten())
+    
     # print(sum(transition_weights))
     # print(sum(transition_weights)/len(transition_weights))
 
     #transition_weights = np.sqrt(np.divide(weights[1:].flatten(), weights_before[1:].flatten()))
+
+    #transition_weights = np.sqrt(weights[1:].flatten())
+
 
     #TODO make weighted version of this; use it to debug weighting scheme
     #this will have to be replaced with a binning function that works for higher dimensions
@@ -143,7 +203,7 @@ def parallel_trj_histogram_mtd(state, params):
     cumulative_molecular_time += nsegs*save_period
     cumulative_aggregate_time += n_parallel*nsegs*save_period
 
-    return (trjs, weights, weights_before, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_grid_masked, pops_msm), False #pops_grid_uncorrected, pops_hist, pops_grid, 
+    return (trjs, weights, weights_before, grid_weights, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_grid_masked, pops_msm, pops_msm_v2), False #pops_grid_uncorrected, pops_hist, pops_grid, 
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
@@ -198,7 +258,7 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
 
     grid = metadynamics_v1.grid(system.standard_analysis_range, len(binbounds)-1, rate, dT, stdev)
 
-    init_grid_weights = grid.grid_weights(kT)
+    init_grid_weights = grid.grid_weights(kT).reshape((1, len(binbounds)+1))
 
     #pack the initial state and parameters and run dynamics
     initial_state = (trjs, init_weights, init_weights_before, init_grid_weights, grid, 0, 0)
@@ -209,7 +269,7 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
     #but without the data type/structure requirement of a numpy array
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
 
-    observable_names = ["grid + histogram", "masked grid", "msm", "MSM nearby"]
+    observable_names = ["grid + histogram", "masked grid", "MSM", "MSM v2"]
 
     return observables_x_time, observable_names
 

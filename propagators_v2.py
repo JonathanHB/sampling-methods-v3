@@ -54,7 +54,7 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsegs, save_period, grid):
     w_out_before = np.zeros((nsegs, trj_coords.shape[0]))
 
     w_grid = np.zeros((nsegs, *grid.grid.shape))
-    print(w_grid.shape)
+    #print(w_grid.shape)
 
     fc = 0
     updates = 0
@@ -73,6 +73,7 @@ def propagate_mtd(system, kT, trj_coords, timestep, nsegs, save_period, grid):
         trj_out[i] = trj_coords
         #TODO is this dominated by weights of newer trajectories? Is the fact that these weights are not normalized a problem?
         w_out[i] = grid.weights(trj_coords, kT)
+
         w_grid[i] = grid.grid_weights(kT)
         
         t5 = time.time()
