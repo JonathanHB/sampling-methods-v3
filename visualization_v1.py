@@ -19,8 +19,8 @@ def plot_landscape_estimate(bincenters, est_populations, true_populations, title
     plt.xlim(xrange)
     plt.ylim(yrange)
 
-    if savefilename!="":
-        plt.savefig(savefilename, format="png", dpi=600)
+    #if savefilename!="":
+    #    plt.savefig(savefilename, format="png", dpi=600)
 
     plt.show()
 
