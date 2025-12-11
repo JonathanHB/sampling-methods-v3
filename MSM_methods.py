@@ -133,7 +133,7 @@ def transitions_2_msm(transitions, weights=None):
 #returns
 # eqp_msm: the equilibrium probabilities of each state in the MSM
 
-def tpm_2_eqprobs(msm_tpm, print_convergence_time=False):
+def tpm_2_eqprobs(msm_tpm, silent=False, print_convergence_time=False):
 
     #get tpm eigenvalues and eigenvectors to find state probabilities
     msm_eigs = np.linalg.eig(msm_tpm)
@@ -153,12 +153,14 @@ def tpm_2_eqprobs(msm_tpm, print_convergence_time=False):
             eig1_ind = ex
 
     if eig1_ind == -1:
-        print(f"error: no eigenvalue is 1 to within {nfigs} significant figures")
+        if not silent:
+            print(f"error: no eigenvalue is 1 to within {nfigs} significant figures")
         
         eig1 = min(msm_eigs[0], key=lambda x:abs(x-1))
         eig1_ind = np.where(msm_eigs[0] == eig1)
         
-        print(f"using eigenvalue {eig1}")
+        if not silent:
+            print(f"using eigenvalue {eig1}")
 
     eig0_raw = msm_eigs[1][:,eig1_ind] #this is the eigenvector associated with the eigenvalue 1
     
@@ -183,14 +185,14 @@ def tpm_2_eqprobs(msm_tpm, print_convergence_time=False):
         
         maxerror = max(abs(max(fractional_errors)[0]), abs(min(fractional_errors)[0]))
         if maxerror < 10**-nfigs and min(eig0c)[0] >= 0:
-            if print_convergence_time:
+            if print_convergence_time and not silent:
                 print(f"eigenvector converged to within 10^{-nfigs} after {r} rounds")
             converged = True
             break
             
         eig0c = eig0c_buffer
             
-    if not converged:
+    if not converged and not silent:
         print(f"error: eigenvector failed to converge after {refinement_rounds} rounds; \
 maximum fractional error of any component = {maxerror}")
     
@@ -202,28 +204,28 @@ maximum fractional error of any component = {maxerror}")
     return np.real(eig0c)
 
 
-def transitions_to_eq_probs(transitions, bincenters, show_TPM=False):
+def transitions_to_eq_probs(transitions, bincenters, silent=False, show_TPM=False):
     
     tpm, states_in_order = transitions_2_msm(transitions)
     if show_TPM:
         plt.matshow(tpm)
         plt.show()
 
-    eqp_msm = tpm_2_eqprobs(tpm)
+    eqp_msm = tpm_2_eqprobs(tpm, silent)
     x_msm = [bincenters[i] for i in states_in_order]
 
     return x_msm, eqp_msm
 
 
 
-def transitions_to_eq_probs_v2(transitions, nstates, weights=None, show_TPM=False):
+def transitions_to_eq_probs_v2(transitions, nstates, weights=None, silent=False, show_TPM=False):
     
     tpm, states_in_order = transitions_2_msm(transitions, weights)
     if show_TPM:
         plt.matshow(tpm)
         plt.show()
 
-    eqp_msm_sampled = tpm_2_eqprobs(tpm)
+    eqp_msm_sampled = tpm_2_eqprobs(tpm, silent)
 
     eqp_msm = np.zeros(nstates)
     for i in range(nstates):

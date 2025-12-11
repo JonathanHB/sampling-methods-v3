@@ -2,6 +2,7 @@ from collections import Counter
 import numpy as np
 
 from sklearn.preprocessing import normalize
+from scipy.sparse.csgraph import connected_components
 
 import metadynamics_v1
 import propagators_v2
@@ -86,7 +87,7 @@ def parallel_trj_histogram_mtd(state, params):
     transitions = transitions.reshape((2, transitions.shape[1]*transitions.shape[2])).transpose()
 
     #build MSM
-    pops_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, weights=transition_weights, show_TPM=False)
+    pops_msm = MSM_methods.transitions_to_eq_probs_v2(transitions, len(binbounds)+1, weights=transition_weights, silent=True, show_TPM=False)
     
     # #----------------------------MSM with nearby transitions only----------------------------#
 
@@ -181,7 +182,7 @@ def parallel_trj_histogram_mtd(state, params):
     #print(f"eigenvalue: {eigenvalue}")
     #pops_msm_v2 = auxilliary_MSM_methods.tpm_2_eqprobs(puv_mean, eigenvalue)
 
-    pops_msm_v2 = MSM_methods.tpm_2_eqprobs(puv_mean)
+    pops_msm_v2 = np.ones(puv_mean.shape[0])#MSM_methods.tpm_2_eqprobs(puv_mean, silent=True)
     pops_msm_v2 /= np.sum(pops_msm_v2)
 
 
@@ -261,51 +262,107 @@ def parallel_trj_histogram_mtd(state, params):
     reweight_matrices_all = np.stack(reweight_matrices_all)
 
     #-----------------------------------------------------------------------------
-    #calculate equilibrium probabilities from the set of states sampled in each round
+    #calculate equilibrium probabilities for the set of states sampled in each round
 
     prob_est_all = []
     cols_all = []
+    n_matrices = []
 
     for c1 in transition_counts_all:
-        cols_1 = np.where(np.sum(c1, axis=1) > 0, 1, 0)
-        cols_all.append(cols_1)
+        cols_1 = np.where(np.sum(c1, axis=1) > 0)[0]
+        cols_1_1hot = np.where(np.sum(c1, axis=1) > 0, 1, 0)
+        cols_all.append(cols_1_1hot)
 
         Pu_c_cols = []
         for c2, reweight_matrix in zip(transition_counts_all, reweight_matrices_all):
-            cols_2 = np.where(np.sum(c2, axis=1) > 0, 1, 0)
+            #cols_2 = np.where(np.sum(c2, axis=1) > 0)[0]
+            cols_2_1hot = np.where(np.sum(c2, axis=1) > 0, 1, 0)
 
-            if np.dot(cols_1, cols_2) == sum(cols_1):
+            if np.dot(cols_1_1hot, cols_2_1hot) == sum(cols_1_1hot):
 
-                print(c2)
-                print(cols_2)
-                print(c2[cols_2, cols_2])
+                # print(c2)
+                # print(cols_1)
+                # print(c2[cols_1][:,cols_1])
+                # this appeared to make things worse but that could have been a fluke (or it could have to do with the asymmetry of the reweighting matrix)
+                # transition_counts_i = c2[cols_1][:,cols_1]
+                # transition_counts_i_s = (transition_counts_i+transition_counts_i.transpose())/2
 
                 #normalize transition count matrix to transition rate matrix
                 #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
                 # so that the probability associated with each element of X(t) is preserved 
                 # (though not all at one index) when X(t) is multiplied by the TPM
-                tpm = normalize(c2[cols_2, cols_2], axis=0, norm='l1') #this indexing is wrong we need to use the output of normal np.where or something
+                tpm = normalize(c2[cols_1][:,cols_1], axis=0, norm='l1') #this indexing is wrong we need to use the output of normal np.where or something
 
-                Pu_c_cols.append(np.multiply(tpm, reweight_matrix[cols_2, cols_2]))
-                
-        Pu_arr = np.array(Pu_c_cols)
-        Pu_mean = np.mean(Pu_c_cols, axis=0) 
+                Pu_c_cols.append(np.multiply(tpm, reweight_matrix[cols_1][:,cols_1]))
         
-        #TODO ergodic trimming here; at some point return separate estimates for all connected components instead of just the greatest one
+        #for weighted averaging in the future?
+        n_matrices.append(len(Pu_c_cols))
 
-        pops_msm_i = MSM_methods.tpm_2_eqprobs(Pu_mean)
-        pops_msm_i /= np.sum(pops_msm_i)
+        Pu_arr = np.array(Pu_c_cols)
+        Pu_mean = np.mean(Pu_arr, axis=0)
+
+        #print("VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV")
+
+        #TODO ergodic trimming here; at some point return separate estimates for all connected components instead of just the greatest one
+        #identify the greatest connected component of the transition counts matrix, 
+        # which is only normally a problem when building haMSMs
+        connected_states = connected_components(Pu_mean, directed=True, connection='strong')[1]
+        cc_inds, cc_sizes = np.unique(connected_states, return_counts=True)
+
+        if len(cc_sizes) == 0:
+            print("no connected components detected")
+            return [[1]], [0]
+
+        greatest_connected_component = cc_inds[np.argmax(cc_sizes)]
+            
+        #remove all other components
+        smaller_component_indices = [i for i, ccgroup in enumerate(connected_states) if ccgroup != greatest_connected_component]
+        
+        gcc_indices = np.where(connected_states == greatest_connected_component)[0]
+        cols_1_connected = cols_1[gcc_indices]
+        # print(f"cols1: {cols_1}")
+        # print(f"cols1_connected: {cols_1_connected}")
+        # print(f"smaller comps: {smaller_component_indices}")
+        
+        Pu_mean = np.delete(Pu_mean, smaller_component_indices, 0)
+        Pu_mean = np.delete(Pu_mean, smaller_component_indices, 1)
+
+        # plt.imshow(Pu_mean)
+        # plt.show()
+        # plt.imshow(Pu_mean==0)
+        # plt.show()
+
+        #calculate equilibrium probabilities for the (connected) set of states sampled in c1
+        pops_msm_i = auxilliary_MSM_methods.tpm_2_eqprobs_v3(Pu_mean)
+        pops_msm_i /= np.sum(pops_msm_i) #I believe this is redundant
+
+        #construct equilibrium probability vector for all states
         pops_msm_i_allstates = np.zeros(n_states)
-        pops_msm_i_allstates[cols_1==1] = pops_msm_i
+        pops_msm_i_allstates[cols_1_connected] = pops_msm_i.flatten()
         prob_est_all.append(pops_msm_i_allstates)
 
-        print(pops_msm_i)
-        print(pops_msm_i_allstates)
+        #print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
 
         plt.plot(pops_msm_i_allstates)
+    plt.show()
+    # import sys
+    # sys.exit(0)
 
 
     ################################# trimmings #####################################
+
+        # print("-------------------------------------------------------")
+        # print(pops_msm_i_allstates)
+        # print(pops_msm_j_allstates)
+
+        # #print(pops_msm_i)
+
+        # pops_msm_i_allstates = np.zeros(n_states)
+        # k=0
+        # for i in range(n_states):
+        #     if cols_1_1hot[i] == 1:
+        #         pops_msm_i_allstates[i] = pops_msm_i[k]
+        #         k+=1
 
     # #all reweighted transition probability matrices, for averaging
     # Pu_all = [] 
