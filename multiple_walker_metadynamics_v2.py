@@ -189,6 +189,7 @@ def parallel_trj_histogram_mtd(state, params):
     #----------------------------MSM-based population estimation v3----------------------------------#
     ##################################################################################################
 
+    #-----------------------------------------------------------------------------
     #outline
 
     #for every counts matrix c, find all other matrices c' which have sampled transitions arising from all of the same states (and possibly others),
@@ -207,19 +208,34 @@ def parallel_trj_histogram_mtd(state, params):
     #weighting based on how many times each transition (or each counts matrix) is reused is pending and may be unnecessary or intractable
 
     #-----------------------------------------------------------------------------
+    #pseudocode
 
     # Cols_occupied(c) = np.where(np.sum(c, axis=1) > 0, 1, 0)    #aka cols
     # Submatrix(c, cols) = c[cols, cols]
     # Contains_cols(c’, c) = [sum(np.dot(cols(c), cols(c’))) == sum(cols(c))] #i.e. does c’ have transitions from all the same states as c?
 
-    # Subsets = [] # all matrices which have sampled all columns sampled in the c’th matrix
+    # #Subsets = [] # all matrices which have sampled all columns sampled in the c’th matrix
+
+    #prob_est_all = []
+    #cols_all = []
 
     # For i, c in enum C:
-    #     Ssi = []
-    #     For j, k in enum C:
-    #         Ssi.append(j) if contains_cols(c’, c)
-    #     Subsets.append(ssi)
+    #     cols = np.where(np.sum(c, axis=1) > 0, 1, 0)
+    #     cols_all.append(cols)
+    #     #Ssi = []
+    #     mats_with_c_cols = []
+    #     For j, c' in enum C:
+    #         if contains_cols(c’, c):
+    #             mats_with_c_cols.append(np.multiply(tpm(c'[cols, cols]), reweight_matrix[t][cols, cols]))
+    #     #Subsets.append(ssi)
+    #     prob_est = eig(mean(mats_with_c_cols)) # <-- TODO ergodic trimming here; at some point return separate estimates for all connected components instead of just the greatest one
+    #     probs_est_allstates = {probs_est for states with estimates otherwise 0}
+    #     prob_est_all.append(prob_est_allstates)
 
+    #
+
+    #-----------------------------------------------------------------------------
+    #make transition count and reweighting matrices for each simulation round
 
     #this will have to be replaced with a binning function that works for higher dimensions
     trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
@@ -228,40 +244,102 @@ def parallel_trj_histogram_mtd(state, params):
     transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:])).transpose(1,2,0)
 
     n_states = len(binbounds)+1
+    nrounds = len(trjs)-1
 
-    #all reweighted transition probability matrices, for averaging
-    Pu_all = [] 
+    transition_counts_all = np.zeros((nrounds, n_states, n_states))
+    reweight_matrices_all = []
 
+    #there's probably some way to vectorize this
     #calculate reweighted TPMs for every round
-    for t in range(len(trjs)-1):
-
+    for t in range(nrounds):
         #count transitions
-        transition_counts = np.zeros((n_states, n_states))
         for tr in transitions[t]:
-            transition_counts[tr[1]][tr[0]] += 1
+            transition_counts_all[t, tr[1], tr[0]] += 1
 
-        #normalize transition count matrix to transition rate matrix
-        #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
-        # so that the probability associated with each element of X(t) is preserved 
-        # (though not all at one index) when X(t) is multiplied by the TPM
-        tpm = normalize(transition_counts, axis=0, norm='l1')
+        reweight_matrices_all.append(np.outer(grid_weights[t], np.reciprocal(grid_weights[t])))
 
-        #project vectors from unbiased basis into the basis with the metadynamics bias V
-        #[:, np.newaxis] makes a row vector into a column vector
-        reweight_matrix = np.outer(grid_weights[t], np.reciprocal(grid_weights[t]))
+    reweight_matrices_all = np.stack(reweight_matrices_all)
 
-        Pu = np.multiply(reweight_matrix, tpm)
+    #-----------------------------------------------------------------------------
+    #calculate equilibrium probabilities from the set of states sampled in each round
 
-        Pu_all.append(Pu)
+    prob_est_all = []
+    cols_all = []
 
-    puv_arr = np.array(Pu_all)
+    for c1 in transition_counts_all:
+        cols_1 = np.where(np.sum(c1, axis=1) > 0, 1, 0)
+        cols_all.append(cols_1)
 
-    puv_mean = np.mean(puv_arr, axis=0)
+        Pu_c_cols = []
+        for c2, reweight_matrix in zip(transition_counts_all, reweight_matrices_all):
+            cols_2 = np.where(np.sum(c2, axis=1) > 0, 1, 0)
 
-    #calculate first eigenvector corresponding to equilibrium probability
+            if np.dot(cols_1, cols_2) == sum(cols_1):
 
-    pops_msm_v2 = MSM_methods.tpm_2_eqprobs(puv_mean)
-    pops_msm_v2 /= np.sum(pops_msm_v2)
+                print(c2)
+                print(cols_2)
+                print(c2[cols_2, cols_2])
+
+                #normalize transition count matrix to transition rate matrix
+                #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
+                # so that the probability associated with each element of X(t) is preserved 
+                # (though not all at one index) when X(t) is multiplied by the TPM
+                tpm = normalize(c2[cols_2, cols_2], axis=0, norm='l1') #this indexing is wrong we need to use the output of normal np.where or something
+
+                Pu_c_cols.append(np.multiply(tpm, reweight_matrix[cols_2, cols_2]))
+                
+        Pu_arr = np.array(Pu_c_cols)
+        Pu_mean = np.mean(Pu_c_cols, axis=0) 
+        
+        #TODO ergodic trimming here; at some point return separate estimates for all connected components instead of just the greatest one
+
+        pops_msm_i = MSM_methods.tpm_2_eqprobs(Pu_mean)
+        pops_msm_i /= np.sum(pops_msm_i)
+        pops_msm_i_allstates = np.zeros(n_states)
+        pops_msm_i_allstates[cols_1==1] = pops_msm_i
+        prob_est_all.append(pops_msm_i_allstates)
+
+        print(pops_msm_i)
+        print(pops_msm_i_allstates)
+
+        plt.plot(pops_msm_i_allstates)
+
+
+    ################################# trimmings #####################################
+
+    # #all reweighted transition probability matrices, for averaging
+    # Pu_all = [] 
+
+    # #calculate reweighted TPMs for every round
+    # for t in range(len(trjs)-1):
+
+    #     #count transitions
+    #     transition_counts = np.zeros((n_states, n_states))
+    #     for tr in transitions[t]:
+    #         transition_counts[tr[1]][tr[0]] += 1
+
+    #     #normalize transition count matrix to transition rate matrix
+    #     #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
+    #     # so that the probability associated with each element of X(t) is preserved 
+    #     # (though not all at one index) when X(t) is multiplied by the TPM
+    #     tpm = normalize(transition_counts, axis=0, norm='l1')
+
+    #     #project vectors from unbiased basis into the basis with the metadynamics bias V
+    #     #[:, np.newaxis] makes a row vector into a column vector
+    #     reweight_matrix = np.outer(grid_weights[t], np.reciprocal(grid_weights[t]))
+
+    #     Pu = np.multiply(reweight_matrix, tpm)
+
+    #     Pu_all.append(Pu)
+
+    # puv_arr = np.array(Pu_all)
+
+    # puv_mean = np.mean(puv_arr, axis=0)
+
+    # #calculate first eigenvector corresponding to equilibrium probability
+
+    # pops_msm_v2 = MSM_methods.tpm_2_eqprobs(puv_mean)
+    # pops_msm_v2 /= np.sum(pops_msm_v2)
 
 
     #----------------------------------increment simulation time--------------------------------
