@@ -14,6 +14,120 @@ import time
 
 import auxilliary_MSM_methods
 
+
+from numpy.linalg import solve
+
+# def minimize_weighted_G2(G0, W):
+#     """
+#     Solve for v that minimizes sum_{ij} W_ij (G0_ij + v_i - v_j)^2
+
+#     Parameters
+#     ----------
+#     G0 : (n, n) ndarray
+#         Base matrix G_0
+#     W : (n, n) ndarray
+#         Weight matrix (assumed non-negative)
+
+#     Returns
+#     -------
+#     v : (n,) ndarray
+#         Minimizing vector v, with gauge sum(v) = 0
+#     """
+#     G0 = np.asarray(G0, dtype=float)
+#     W = np.asarray(W, dtype=float)
+
+#     n = G0.shape[0]
+#     assert G0.shape == (n, n)
+#     assert W.shape == (n, n)
+
+#     # Row and column sums of W
+#     row_sum = W.sum(axis=1)
+#     col_sum = W.sum(axis=0)
+
+#     # Construct Laplacian-like matrix L
+#     L = np.zeros((n, n))
+
+#     # Diagonal
+#     L[np.diag_indices(n)] = row_sum + col_sum
+
+#     # Off-diagonals
+#     for i in range(n):
+#         for j in range(n):
+#             if i != j:
+#                 L[i, j] = -(W[i, j] + W[j, i])
+
+#     # Construct RHS b
+#     b = (W.T * G0).sum(axis=1) - (W * G0).sum(axis=1)
+
+#     # Impose gauge: sum(v) = 0
+#     # Replace last row with constraint
+#     L[-1, :] = 1.0
+#     b[-1] = 0.0
+
+#     # Solve
+#     v = solve(L, b)
+
+#     return v
+
+
+def align_free_energy_offsets(G, W, gauge="mean"):
+    """
+    Align relative free-energy estimates G_ij ≈ v_j - v_i
+
+    Parameters
+    ----------
+    G : (n, n) ndarray
+        Pairwise free energy estimates (NaN or arbitrary where no overlap)
+    W : (n, n) ndarray
+        Weights (0 where no overlap)
+    gauge : str
+        'mean' -> sum(v)=0
+        'zero' -> v[0]=0
+
+    Returns
+    -------
+    v : (n,) ndarray
+        Optimal free-energy offsets
+    """
+    G = np.asarray(G, float)
+    W = np.asarray(W, float)
+    n = G.shape[0]
+
+    # Laplacian
+    L = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            w = W[i, j] + W[j, i]
+            if w > 0:
+                L[i, i] += w
+                L[j, j] += w
+                L[i, j] -= w
+                L[j, i] -= w
+
+    # plt.imshow(L)
+    # plt.show()
+
+    # RHS
+    b = np.zeros(n)
+    for i in range(n):
+        b[i] = np.sum(W[:, i] * G[:, i]) - np.sum(W[i, :] * G[i, :])
+
+    # Fix gauge
+    if gauge == "mean":
+        L[-1, :] = 1.0
+        b[-1] = 0.0
+    elif gauge == "zero":
+        L[0, :] = 0.0
+        L[0, 0] = 1.0
+        b[0] = 0.0
+    else:
+        raise ValueError("Unknown gauge")
+
+    return solve(L, b)
+
+
 #run parallel trajectories and estimate the energy landscape by making a histogram of all the frames
 def parallel_trj_histogram_mtd(state, params):
     
@@ -271,7 +385,6 @@ def parallel_trj_histogram_mtd(state, params):
     for c1 in transition_counts_all:
         cols_1 = np.where(np.sum(c1, axis=1) > 0)[0]
         cols_1_1hot = np.where(np.sum(c1, axis=1) > 0, 1, 0)
-        cols_all.append(cols_1_1hot)
 
         Pu_c_cols = []
         for c2, reweight_matrix in zip(transition_counts_all, reweight_matrices_all):
@@ -320,6 +433,18 @@ def parallel_trj_histogram_mtd(state, params):
         
         gcc_indices = np.where(connected_states == greatest_connected_component)[0]
         cols_1_connected = cols_1[gcc_indices]
+        
+        sc_indices = np.where(connected_states != greatest_connected_component)[0]
+        cols_1_disconnected = cols_1[sc_indices]
+
+        #print(sc_indices)
+        #print(cols_1_1hot)
+        
+        cols_1_1hot[cols_1_disconnected] = 0
+        #print(cols_1_1hot)
+
+        cols_all.append(cols_1_1hot)
+
         # print(f"cols1: {cols_1}")
         # print(f"cols1_connected: {cols_1_connected}")
         # print(f"smaller comps: {smaller_component_indices}")
@@ -339,14 +464,98 @@ def parallel_trj_histogram_mtd(state, params):
         #construct equilibrium probability vector for all states
         pops_msm_i_allstates = np.zeros(n_states)
         pops_msm_i_allstates[cols_1_connected] = pops_msm_i.flatten()
+
+        for aaa, bbb in zip(pops_msm_i_allstates, cols_1_1hot):
+            if (bbb == 0 and aaa != 0) or (bbb != 0 and aaa == 0):
+                print("error in reconstructing full-state probability vector")
+                print(pops_msm_i_allstates)
+                print(cols_1_1hot)
+                sys.exit(0)
+
         prob_est_all.append(pops_msm_i_allstates)
 
         #print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
 
-        plt.plot(pops_msm_i_allstates)
-    plt.show()
+    #     plt.plot(pops_msm_i_allstates)
+    # plt.show()
+
+    # plt.plot(n_matrices)
+    # plt.show()
     # import sys
     # sys.exit(0)
+
+    #-----------------------------------------------------------------------------
+    #align energy landscapes based on equal populations in overlapping states
+
+    landscape_comparison_weights = np.zeros((len(prob_est_all), len(prob_est_all)))
+    deltaG_matrix = np.zeros((len(prob_est_all), len(prob_est_all)))
+
+    # print("-------------------------")
+
+    for i, (p1, c1, n1) in enumerate(zip(prob_est_all, cols_all, n_matrices)):
+        for j, (p2, c2, n2) in enumerate(zip(prob_est_all, cols_all, n_matrices)):
+            c12 = np.multiply(c1,c2)
+            if sum(c12) > 0 and i != j:
+                if sum(np.multiply(p2, c12)) == 0 or sum(np.multiply(p1, c12)) == 0:
+                    print(f"p1: {np.multiply(p1, c12)}")
+                    print(p1)
+                    print(c1)
+                    print(f"p2: {np.multiply(p2, c12)}")
+                    print(p2)
+                    print(c2)
+
+                pop_ratio = sum(np.multiply(p2, c12))/sum(np.multiply(p1, c12))
+                deltaG_matrix[i,j] = -kT*np.log(pop_ratio)
+                #I have no theoretical justification for this specific weighting scheme
+                landscape_comparison_weights[i,j] = n1*n2*sum(c12) #weight by number of matrices used to calculate each estimate and number of overlapping states
+
+    # print("-------------------------")
+
+    fe_shifts = align_free_energy_offsets(deltaG_matrix, landscape_comparison_weights, gauge="zero")
+    #minimize_weighted_G2(deltaG_matrix, landscape_comparison_weights) #method written by chatGPT
+    # print(fe_shifts)
+    # plt.hist(fe_shifts)
+    # plt.show()
+
+    #Beware this is full of infinities for unsampled states
+    deltaG_shifted = np.stack([-kT*np.log(prob_est/kT)-shift for prob_est, shift in zip(prob_est_all, fe_shifts)])
+    #print(deltaG_shifted)
+    #plt.matshow(deltaG_shifted)  # <-- very useful
+
+    cols_mat = np.stack(cols_all)
+
+    #plt.show()
+
+    states_sampled = np.where(np.sum(cols_mat, axis=0) > 0)[0]
+    states_sampled_1hot = np.where(np.sum(cols_mat, axis=0) > 0, 1, 0)
+
+    #print(cols_mat.shape)
+
+    n_matrices_tiled = np.tile(np.array(n_matrices), (n_states,1)).transpose()
+    #print(n_matrices_tiled)
+    #print(np.tile(np.array(n_matrices), (cols_mat.shape[1],1)).transpose().shape)
+    weight_matrix = np.multiply(cols_mat, n_matrices_tiled)
+
+    deltaG_average_sampled = np.average(np.nan_to_num(deltaG_shifted[:,states_sampled], posinf=0.0, neginf=0.0), axis=0, weights=weight_matrix[:,states_sampled])
+
+    deltaG_average = np.zeros(n_states)
+    deltaG_average[states_sampled] = deltaG_average_sampled
+
+    print(deltaG_average)
+
+    for gi in deltaG_shifted:
+        plt.plot(gi)
+    
+    plt.plot(states_sampled, deltaG_average_sampled, linewidth=2, color='black', zorder = 999999)
+    
+    plt.show()
+
+    
+
+
+
+
+
 
 
     ################################# trimmings #####################################
