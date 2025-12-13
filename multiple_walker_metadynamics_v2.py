@@ -12,8 +12,9 @@ import MSM_methods
 import matplotlib.pyplot as plt
 import time
 
-import auxilliary_MSM_methods
+import sys
 
+import auxilliary_MSM_methods
 
 from numpy.linalg import solve
 
@@ -69,7 +70,7 @@ from numpy.linalg import solve
 
 #     return v
 
-
+# by chatGPT
 def align_free_energy_offsets(G, W, gauge="mean"):
     """
     Align relative free-energy estimates G_ij ≈ v_j - v_i
@@ -296,7 +297,7 @@ def parallel_trj_histogram_mtd(state, params):
     #print(f"eigenvalue: {eigenvalue}")
     #pops_msm_v2 = auxilliary_MSM_methods.tpm_2_eqprobs(puv_mean, eigenvalue)
 
-    pops_msm_v2 = np.ones(puv_mean.shape[0])#MSM_methods.tpm_2_eqprobs(puv_mean, silent=True)
+    pops_msm_v2 = MSM_methods.tpm_2_eqprobs(puv_mean, silent=True)
     pops_msm_v2 /= np.sum(pops_msm_v2)
 
 
@@ -397,14 +398,14 @@ def parallel_trj_histogram_mtd(state, params):
                 # print(cols_1)
                 # print(c2[cols_1][:,cols_1])
                 # this appeared to make things worse but that could have been a fluke (or it could have to do with the asymmetry of the reweighting matrix)
-                # transition_counts_i = c2[cols_1][:,cols_1]
-                # transition_counts_i_s = (transition_counts_i+transition_counts_i.transpose())/2
+                transition_counts_i = c2[cols_1][:,cols_1]
+                transition_counts_i_s = (transition_counts_i+transition_counts_i.transpose())/2
 
                 #normalize transition count matrix to transition rate matrix
                 #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
                 # so that the probability associated with each element of X(t) is preserved 
                 # (though not all at one index) when X(t) is multiplied by the TPM
-                tpm = normalize(c2[cols_1][:,cols_1], axis=0, norm='l1') #this indexing is wrong we need to use the output of normal np.where or something
+                tpm = normalize(transition_counts_i_s, axis=0, norm='l1') #this indexing is wrong we need to use the output of normal np.where or something
 
                 Pu_c_cols.append(np.multiply(tpm, reweight_matrix[cols_1][:,cols_1]))
         
@@ -521,10 +522,9 @@ def parallel_trj_histogram_mtd(state, params):
     deltaG_shifted = np.stack([-kT*np.log(prob_est/kT)-shift for prob_est, shift in zip(prob_est_all, fe_shifts)])
     #print(deltaG_shifted)
     #plt.matshow(deltaG_shifted)  # <-- very useful
+    #plt.show()
 
     cols_mat = np.stack(cols_all)
-
-    #plt.show()
 
     states_sampled = np.where(np.sum(cols_mat, axis=0) > 0)[0]
     states_sampled_1hot = np.where(np.sum(cols_mat, axis=0) > 0, 1, 0)
@@ -534,14 +534,19 @@ def parallel_trj_histogram_mtd(state, params):
     n_matrices_tiled = np.tile(np.array(n_matrices), (n_states,1)).transpose()
     #print(n_matrices_tiled)
     #print(np.tile(np.array(n_matrices), (cols_mat.shape[1],1)).transpose().shape)
-    weight_matrix = np.multiply(cols_mat, n_matrices_tiled)
+    weight_matrix = cols_mat #np.multiply(cols_mat, n_matrices_tiled)
 
     deltaG_average_sampled = np.average(np.nan_to_num(deltaG_shifted[:,states_sampled], posinf=0.0, neginf=0.0), axis=0, weights=weight_matrix[:,states_sampled])
+
+    msm_v3_pops_sampled = np.exp(-deltaG_average_sampled/kT)
+    msm_v3_pops_sampled /= np.sum(msm_v3_pops_sampled)
+    msm_v3_pops_all = np.zeros(n_states)
+    msm_v3_pops_all[states_sampled] = msm_v3_pops_sampled
 
     deltaG_average = np.zeros(n_states)
     deltaG_average[states_sampled] = deltaG_average_sampled
 
-    print(deltaG_average)
+    #print(deltaG_average)
 
     for gi in deltaG_shifted:
         plt.plot(gi)
@@ -613,7 +618,7 @@ def parallel_trj_histogram_mtd(state, params):
     cumulative_molecular_time += nsegs*save_period
     cumulative_aggregate_time += n_parallel*nsegs*save_period
 
-    return (trjs, weights, weights_before, grid_weights, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_grid_masked, pops_msm, pops_msm_v2), False #pops_grid_uncorrected, pops_hist, pops_grid, 
+    return (trjs, weights, weights_before, grid_weights, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_grid_masked, pops_msm, pops_msm_v2, msm_v3_pops_all), False #pops_grid_uncorrected, pops_hist, pops_grid, 
 
 
 #set up and run parallel simulations and estimate the energy landscape with a histogram
@@ -679,7 +684,7 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
     #but without the data type/structure requirement of a numpy array
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
 
-    observable_names = ["grid + histogram", "masked grid", "MSM", "MSM v2"]
+    observable_names = ["grid + histogram", "masked grid", "MSM", "MSM v2", "MSM v3"]
 
     return observables_x_time, observable_names
 
