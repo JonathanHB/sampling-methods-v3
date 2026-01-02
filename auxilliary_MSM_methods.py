@@ -1,5 +1,7 @@
 import numpy as np
 
+#TODO: the contents of this class should be incorporated into either MSM_methods.py or mtd_estimators.py and this class should be deprecated
+
 def tpm_2_eqprobs(msm_tpm, eq_eigenvalue, print_convergence_time=False):
 
     #get tpm eigenvalues and eigenvectors to find state probabilities

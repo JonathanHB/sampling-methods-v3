@@ -1,0 +1,863 @@
+import time
+import sys
+import matplotlib.pyplot as plt
+
+import numpy as np
+from sklearn.preprocessing import normalize
+from scipy.sparse.csgraph import connected_components
+from numpy.linalg import solve
+
+import MSM_methods
+import auxilliary_MSM_methods
+
+
+# by chatGPT
+def align_free_energy_offsets(G, W, gauge="mean"):
+    """
+    Align relative free-energy estimates G_ij ≈ v_j - v_i
+
+    Parameters
+    ----------
+    G : (n, n) ndarray
+        Pairwise free energy estimates (NaN or arbitrary where no overlap)
+    W : (n, n) ndarray
+        Weights (0 where no overlap)
+    gauge : str
+        'mean' -> sum(v)=0
+        'zero' -> v[0]=0
+
+    Returns
+    -------
+    v : (n,) ndarray
+        Optimal free-energy offsets
+    """
+    G = np.asarray(G, float)
+    W = np.asarray(W, float)
+    n = G.shape[0]
+
+    # Laplacian
+    L = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            w = W[i, j] + W[j, i]
+            if w > 0:
+                L[i, i] += w
+                L[j, j] += w
+                L[i, j] -= w
+                L[j, i] -= w
+
+    # plt.imshow(L)
+    # plt.show()
+
+    # RHS
+    b = np.zeros(n)
+    for i in range(n):
+        b[i] = np.sum(W[:, i] * G[:, i]) - np.sum(W[i, :] * G[i, :])
+
+    # Fix gauge
+    if gauge == "mean":
+        L[-1, :] = 1.0
+        b[-1] = 0.0
+    elif gauge == "zero":
+        L[0, :] = 0.0
+        L[0, 0] = 1.0
+        b[0] = 0.0
+    else:
+        raise ValueError("Unknown gauge")
+
+    return solve(L, b)
+
+
+
+##################################################################################################
+#----------------------------MSM-based population estimation v3----------------------------------#
+##################################################################################################
+
+def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
+
+    #-----------------------------------------------------------------------------
+    #outline
+
+    #for every counts matrix c, find all other matrices c' which have sampled transitions arising from all of the same states (and possibly others),
+    #   calculate equilibrium probabilities p_i from the subset of rows and columns in c' corresponding to the states from which transitions begin in c
+    #   by averaging the reweighted TPMs calculated for the applicable rows and columns, 
+    #   ergodically trimming the averaged reweighted TPM, and then calculating the eigenvector with eigenvalue 1
+    #   [print these estimates for debugging]
+    #for every pair of probability estimates p1 and p2, calculate the equilibrium probabilities for the set of states sampled by 
+    #   both the counts matrices c1 and c2 used to calculate them, and calculate the associated energy difference: deltaG_12=-ktln(p1/p2)
+    #   if there is no overlap, return 0 (some other data may be needed; see below)
+    #calculate the overall energy shifts deltaG_i for each probability estimate which minimizes 
+    #   the root mean square distance between between all overlapping pairs of energy estimates: sqrt(sum_i,j(deltaG_ij^2)))
+    #   TODO find the solution to this analytically
+    #shift the estimated landscape segments by deltaG_i and average all the estimates for each state k together to get the final landscape estimate
+
+    #weighting based on how many times each transition (or each counts matrix) is reused is pending and may be unnecessary or intractable
+
+    #-----------------------------------------------------------------------------
+    #pseudocode
+
+    # Cols_occupied(c) = np.where(np.sum(c, axis=1) > 0, 1, 0)    #aka cols
+    # Submatrix(c, cols) = c[cols, cols]
+    # Contains_cols(c’, c) = [sum(np.dot(cols(c), cols(c’))) == sum(cols(c))] #i.e. does c’ have transitions from all the same states as c?
+
+    # #Subsets = [] # all matrices which have sampled all columns sampled in the c’th matrix
+
+    #prob_est_all = []
+    #cols_all = []
+
+    # For i, c in enum C:
+    #     cols = np.where(np.sum(c, axis=1) > 0, 1, 0)
+    #     cols_all.append(cols)
+    #     #Ssi = []
+    #     mats_with_c_cols = []
+    #     For j, c' in enum C:
+    #         if contains_cols(c’, c):
+    #             mats_with_c_cols.append(np.multiply(tpm(c'[cols, cols]), reweight_matrix[t][cols, cols]))
+    #     #Subsets.append(ssi)
+    #     prob_est = eig(mean(mats_with_c_cols)) # <-- TODO ergodic trimming here; at some point return separate estimates for all connected components instead of just the greatest one
+    #     probs_est_allstates = {probs_est for states with estimates otherwise 0}
+    #     prob_est_all.append(prob_est_allstates)
+
+    #
+
+    #-----------------------------------------------------------------------------
+    #make transition count and reweighting matrices for each simulation round
+    t5 = time.time()
+
+    #this will have to be replaced with a binning function that works for higher dimensions
+    trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
+
+    #calculate transitions by stacking the bin array with a time-shifted copy of itself
+    transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:])).transpose(1,2,0)
+
+    n_states = len(binbounds)+1
+    nrounds = len(trjs)-1
+
+    transition_counts_all = np.zeros((nrounds, n_states, n_states))
+    tpm_all = np.zeros((nrounds, n_states, n_states))
+    reweight_matrices_all = np.zeros((nrounds, n_states, n_states))
+
+    #there's probably some way to vectorize this but it's not currently (12/15/25) the limiting factor in code speed
+    #calculate reweighted TPMs for every round
+    for t in range(nrounds):
+        #count transitions
+        for tr in transitions[t]:
+            transition_counts_all[t, tr[1], tr[0]] += 1
+
+        reweight_matrices_all[t] = np.outer(grid_weights[t], np.reciprocal(grid_weights[t]))
+
+        tpm_all[t] = normalize(transition_counts_all[t], axis=1, norm='l1') #TODO can't do this in here since the normalization is different with only 2 states
+
+    p_u = np.multiply(tpm_all, reweight_matrices_all)
+
+    #q = np.multiply
+
+    t6 = time.time()
+    print(f"MSM 4, part 1: transitions and reweight matrices: {t6-t5}")
+
+    #-----------------------------------------------------------------------------
+    #estimate relative free energy of each pair of states
+    n_pairs = int(round(n_states*(n_states-1)/2))
+
+    probs_est = np.zeros([n_pairs, 2])
+    state_pairs = np.zeros([n_pairs, 2])
+    interstate_transitions = np.zeros(n_pairs)
+
+    pair_i = 0
+    for s1 in range(n_states):
+        for s2 in range(s1+1, n_states):
+            state_pairs[pair_i] = [s1, s2]
+
+            #take the submatrix of p_u corresponding to transitions between states s1 and s2
+            q = p_u[:,(s1,s2)][:,:,(s1,s2)] #can this be reduced to one indexing operation?
+            print(q.shape)
+    
+            #q_ind = {1 if transitions begin from both states at each time point, 0 otherwise}
+            #this is to avoid native-state bias from including transition matrices which don't sample both states
+            q_ind = np.prod(np.sum(q, axis=1), axis=1)
+            
+            #total number of transitions at each time point, for weighting
+            n_transitions_t = np.sum(q, axis=(1,2))
+            print(n_transitions_t)
+            print(n_transitions_t.shape)
+
+            if sum(q_ind) > 0: #if there are no transitions at all (i.e. both states are unsampled), continue to the next state pair (averaging will crash)
+
+                pair_weights_t = np.multiply(q_ind, n_transitions_t)
+
+                q_avg = np.average(q, axis=0, weights=pair_weights_t)
+                print(q_avg)
+
+                #ergodic trimming, which is very easy for two states
+                if q_avg[0,1] > 0 and q_avg[1,0] > 0:
+                    #I think this would create biases if used for averaging across time slices but not for weighting between different pairs of statesq
+                    interstate_transitions[pair_i] = np.sum((q[:,0,1],q[:,1,0]))
+
+                    #larger eigenvalue calculated with quadratic formula
+                    l_0 = (q_avg[0,0]+q_avg[1,1] + np.sqrt((q_avg[0,0]+q_avg[1,1])**2 - 4*(q_avg[0,0]*q_avg[1,1]+q_avg[0,1]*q_avg[1,0])))/2
+                    
+                    #calculate normalized eigenvector and add it to probs_est
+                    x1 = -q_avg[0,1]/(q_avg[0,0]-l_0-q_avg[0,1])
+                    x2 = 1-x1
+
+                    probs_est[pair_i] = [x1, x2]
+
+
+            pair_i += 1
+
+    t7 = time.time()
+    print(f"MSM 4, part 2: pairwise population estimates: {t7-t6}")
+
+
+
+    #-----------------------------------------------------------------------------
+    #calculate equilibrium probabilities for the set of states sampled in each round
+    if False:
+        prob_est_all = []
+        cols_all = []
+        n_matrices = []
+
+        #TODO; what if we just got the MSM free energy estimate for each pair of states (all n^2 of them) and then assembled those?
+        #then we don't need to worry about finding pairs of simulations which sample exactly the same states
+        #and ergodic trimming is rarely a problem and is very easy
+        #this also lets weights account more easily for regional variation in sampling
+        #and the number of matrices no longer keeps growing with the number of rounds
+
+        for c1 in transition_counts_all:
+            t11 = time.time()
+
+            cols_1 = np.where(np.sum(c1, axis=1) > 0)[0]
+            cols_1_1hot = np.where(np.sum(c1, axis=1) > 0, 1, 0)
+
+            Pu_c_cols = []
+            for c2, reweight_matrix in zip(transition_counts_all, reweight_matrices_all):
+                #cols_2 = np.where(np.sum(c2, axis=1) > 0)[0]
+                cols_2_1hot = np.where(np.sum(c2, axis=1) > 0, 1, 0)
+
+                if np.dot(cols_1_1hot, cols_2_1hot) == sum(cols_1_1hot):
+
+                    # print(c2)
+                    # print(cols_1)
+                    # print(c2[cols_1][:,cols_1])
+                    # symmetrizing appears to make energy estimates worse, probably for reasons connected to nonequilibrium sampling or the asymmetry of the reweighting matrix
+                    transition_counts_i = c2[cols_1][:,cols_1]
+                    #transition_counts_i_s = (transition_counts_i+transition_counts_i.transpose())/2
+
+                    #normalize transition count matrix to transition rate matrix
+                    #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
+                    # so that the probability associated with each element of X(t) is preserved 
+                    # (though not all at one index) when X(t) is multiplied by the TPM
+                    tpm = normalize(transition_counts_i, axis=0, norm='l1')
+
+                    Pu_c_cols.append(np.multiply(tpm, reweight_matrix[cols_1][:,cols_1]))
+            
+            #for weighted averaging in the future?
+            n_matrices.append(len(Pu_c_cols))
+
+            Pu_arr = np.array(Pu_c_cols)
+            Pu_mean = np.mean(Pu_arr, axis=0)
+
+            t12 = time.time()
+            #print(f"P_u matrix construction: {t12-t11}")
+
+            #print("VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV")
+
+            #TODO return separate estimates for all connected components instead of just the greatest one
+            # failure to do this may have to do with slow convergence outside the main well
+
+            #identify the greatest connected component of the transition counts matrix, 
+            # which is only normally a problem when building haMSMs
+            connected_states = connected_components(Pu_mean, directed=True, connection='strong')[1]
+            cc_inds, cc_sizes = np.unique(connected_states, return_counts=True)
+
+            if len(cc_sizes) == 0:
+                print("no connected components detected")
+                return [[1]], [0]
+
+            greatest_connected_component = cc_inds[np.argmax(cc_sizes)]
+                
+            #remove all other components
+            smaller_component_indices = [i for i, ccgroup in enumerate(connected_states) if ccgroup != greatest_connected_component]
+            
+            gcc_indices = np.where(connected_states == greatest_connected_component)[0]
+            cols_1_connected = cols_1[gcc_indices]
+            
+            sc_indices = np.where(connected_states != greatest_connected_component)[0]
+            cols_1_disconnected = cols_1[sc_indices]
+
+            #print(sc_indices)
+            #print(cols_1_1hot)
+            
+            cols_1_1hot[cols_1_disconnected] = 0
+            #print(cols_1_1hot)
+
+            cols_all.append(cols_1_1hot)
+
+            # print(f"cols1: {cols_1}")
+            # print(f"cols1_connected: {cols_1_connected}")
+            # print(f"smaller comps: {smaller_component_indices}")
+            
+            Pu_mean = np.delete(Pu_mean, smaller_component_indices, 0)
+            Pu_mean = np.delete(Pu_mean, smaller_component_indices, 1)
+
+            # plt.imshow(Pu_mean)
+            # plt.show()
+            # plt.imshow(Pu_mean==0)
+            # plt.show()
+
+            #calculate equilibrium probabilities for the (connected) set of states sampled in c1
+            pops_msm_i = auxilliary_MSM_methods.tpm_2_eqprobs_v3(Pu_mean)
+            pops_msm_i /= np.sum(pops_msm_i) #I believe this is redundant
+
+            #construct equilibrium probability vector for all states
+            pops_msm_i_allstates = np.zeros(n_states)
+            pops_msm_i_allstates[cols_1_connected] = pops_msm_i.flatten()
+
+            for aaa, bbb in zip(pops_msm_i_allstates, cols_1_1hot):
+                if (bbb == 0 and aaa != 0) or (bbb != 0 and aaa == 0):
+                    print("error in reconstructing full-state probability vector")
+                    print(pops_msm_i_allstates)
+                    print(cols_1_1hot)
+                    sys.exit(0)
+
+            prob_est_all.append(pops_msm_i_allstates)
+
+            t13 = time.time()
+            #print(f"P_u matrix solution: {t13-t12}")
+
+            #print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+
+        t7 = time.time()
+        print(f"MSM 4, part 2: MSM construction: {t7-t6}")
+
+    #     plt.plot(pops_msm_i_allstates)
+    # plt.show()
+
+    # plt.plot(n_matrices)
+    # plt.show()
+    # import sys
+    # sys.exit(0)
+
+    #-----------------------------------------------------------------------------
+    #align energy landscapes based on equal populations in overlapping states
+
+    landscape_comparison_weights = np.zeros((n_pairs, n_pairs))
+    deltaG_matrix = np.zeros((n_pairs, n_pairs))
+
+    #ohe hot encodings of which states are sampled in each pairwise estimate
+    cols_mat = np.zeros((n_pairs, n_states))
+    #probability estimates for all states using only each pair. 
+    #These are meaningless on their own (since all but the two sampled states have 0 probability) but useful for final assembly
+    probs_est_allstates = np.zeros((n_pairs, n_states))
+
+    # print("-------------------------")
+
+    for i, (p1, c1, n1) in enumerate(zip(probs_est, state_pairs, interstate_transitions)):
+        probs_est_allstates[i, c1[0]] = p1[0]
+        probs_est_allstates[i, c1[1]] = p1[1]
+        cols_mat[i, c1[0]] = 1
+        cols_mat[i, c1[1]] = 1
+
+        for j, (p2, c2, n2) in enumerate(zip(probs_est, state_pairs, interstate_transitions)):
+            if j <= i:
+                continue #we only need the upper triangular part of the matrix; the other half is redundant
+
+            #this is surely not the most elegant way to find the population ratio of overlapping states
+            if c1[0] == c2[0]:
+                deltaG_matrix[i,j] = -kT*np.log(p2[0]/p1[0])
+            elif c1[0] == c2[1]:
+                deltaG_matrix[i,j] = -kT*np.log(p2[1]/p1[0])
+            elif c1[1] == c2[0]:
+                deltaG_matrix[i,j] = -kT*np.log(p2[0]/p1[1])
+            elif c1[1] == c2[1]:
+                deltaG_matrix[i,j] = -kT*np.log(p2[1]/p1[1])
+            else:
+                continue #skip adding a weight if there is no overlap
+
+            #prioritize the alignment of states with energy estimates built on more data
+            #I don't have a theoretical justification for this specific weighting function
+            landscape_comparison_weights[i,j] = n1*n2
+
+            # c12 = np.multiply(c1,c2)
+            # if sum(c12) > 0 and i != j:
+            #     if sum(np.multiply(p2, c12)) == 0 or sum(np.multiply(p1, c12)) == 0:
+            #         print(f"p1: {np.multiply(p1, c12)}")
+            #         print(p1)
+            #         print(c1)
+            #         print(f"p2: {np.multiply(p2, c12)}")
+            #         print(p2)
+            #         print(c2)
+
+            #     pop_ratio = sum(np.multiply(p2, c12))/sum(np.multiply(p1, c12))
+            #     deltaG_matrix[i,j] = -kT*np.log(pop_ratio)
+            #     #I have no theoretical justification for this specific weighting scheme
+            #     landscape_comparison_weights[i,j] = n1*n2 #weight by number of matrices used to calculate each estimate and number of overlapping states
+
+    # print("-------------------------")
+
+    t8 = time.time()
+    print(f"MSM 4, part 3: landscape comparison matrix: {t8-t7}")
+
+    fe_shifts = align_free_energy_offsets(deltaG_matrix, landscape_comparison_weights, gauge="zero")
+    #minimize_weighted_G2(deltaG_matrix, landscape_comparison_weights) #method written by chatGPT
+    # print(fe_shifts)
+    # plt.hist(fe_shifts)
+    # plt.show()
+
+    #Beware this is full of infinities for unsampled states
+    with np.errstate(divide = 'ignore'):
+        deltaG_shifted = np.stack([-kT*np.log(prob_est/kT)-shift for prob_est, shift in zip(probs_est_allstates, fe_shifts)])
+    #print(deltaG_shifted)
+    #plt.matshow(deltaG_shifted)  # <-- very useful
+    #plt.show()
+
+    #cols_mat = np.stack(cols_all)
+
+    states_sampled = np.where(np.sum(cols_mat, axis=0) > 0)[0]
+    #states_sampled_1hot = np.where(np.sum(cols_mat, axis=0) > 0, 1, 0)
+
+    #print(cols_mat.shape)
+
+    #TODO use for weighting
+    #n_matrices_tiled = np.tile(interstate_transitions, (n_states,1)).transpose()
+    #print(n_matrices_tiled.shape)
+
+    #print(np.tile(np.array(n_matrices), (cols_mat.shape[1],1)).transpose().shape)
+    weight_matrix = cols_mat #np.multiply(cols_mat, n_matrices_tiled)
+
+    deltaG_average_sampled = np.average(np.nan_to_num(deltaG_shifted[:,states_sampled], posinf=0.0, neginf=0.0), axis=0, weights=weight_matrix[:,states_sampled])
+
+    msm_pops_sampled = np.exp(-deltaG_average_sampled/kT)
+    msm_pops_sampled /= np.sum(msm_pops_sampled)
+    msm_pops_all = np.zeros(n_states)
+    msm_pops_all[states_sampled] = msm_pops_sampled
+
+    deltaG_average = np.zeros(n_states)
+    deltaG_average[states_sampled] = deltaG_average_sampled
+
+    t9 = time.time()
+    print(f"MSM 4, part 4: final assembly: {t9-t8}")
+
+    #print(deltaG_average)
+
+    for gi in deltaG_shifted:
+        plt.plot(gi)
+    
+    plt.plot(states_sampled, deltaG_average_sampled, linewidth=2, color='black', zorder = 999999)
+    
+    plt.plot(deltaG_shifted[-1], linewidth=2, color='grey', linestyle="dashed", zorder = 99999)
+
+    true_populations, true_energies = system.normalized_pops_energies(kT, bincenters)
+
+    plt.plot(-kT*np.log(true_populations), linewidth=2, color='red', zorder = 99998)
+
+    plt.show()
+
+    return msm_pops_all
+
+
+
+
+##################################################################################################
+#----------------------------MSM-based population estimation v3----------------------------------#
+##################################################################################################
+
+def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
+
+    #-----------------------------------------------------------------------------
+    #outline
+
+    #for every counts matrix c, find all other matrices c' which have sampled transitions arising from all of the same states (and possibly others),
+    #   calculate equilibrium probabilities p_i from the subset of rows and columns in c' corresponding to the states from which transitions begin in c
+    #   by averaging the reweighted TPMs calculated for the applicable rows and columns, 
+    #   ergodically trimming the averaged reweighted TPM, and then calculating the eigenvector with eigenvalue 1
+    #   [print these estimates for debugging]
+    #for every pair of probability estimates p1 and p2, calculate the equilibrium probabilities for the set of states sampled by 
+    #   both the counts matrices c1 and c2 used to calculate them, and calculate the associated energy difference: deltaG_12=-ktln(p1/p2)
+    #   if there is no overlap, return 0 (some other data may be needed; see below)
+    #calculate the overall energy shifts deltaG_i for each probability estimate which minimizes 
+    #   the root mean square distance between between all overlapping pairs of energy estimates: sqrt(sum_i,j(deltaG_ij^2)))
+    #   TODO find the solution to this analytically
+    #shift the estimated landscape segments by deltaG_i and average all the estimates for each state k together to get the final landscape estimate
+
+    #weighting based on how many times each transition (or each counts matrix) is reused is pending and may be unnecessary or intractable
+
+    #-----------------------------------------------------------------------------
+    #pseudocode
+
+    # Cols_occupied(c) = np.where(np.sum(c, axis=1) > 0, 1, 0)    #aka cols
+    # Submatrix(c, cols) = c[cols, cols]
+    # Contains_cols(c’, c) = [sum(np.dot(cols(c), cols(c’))) == sum(cols(c))] #i.e. does c’ have transitions from all the same states as c?
+
+    # #Subsets = [] # all matrices which have sampled all columns sampled in the c’th matrix
+
+    #prob_est_all = []
+    #cols_all = []
+
+    # For i, c in enum C:
+    #     cols = np.where(np.sum(c, axis=1) > 0, 1, 0)
+    #     cols_all.append(cols)
+    #     #Ssi = []
+    #     mats_with_c_cols = []
+    #     For j, c' in enum C:
+    #         if contains_cols(c’, c):
+    #             mats_with_c_cols.append(np.multiply(tpm(c'[cols, cols]), reweight_matrix[t][cols, cols]))
+    #     #Subsets.append(ssi)
+    #     prob_est = eig(mean(mats_with_c_cols)) # <-- TODO ergodic trimming here; at some point return separate estimates for all connected components instead of just the greatest one
+    #     probs_est_allstates = {probs_est for states with estimates otherwise 0}
+    #     prob_est_all.append(prob_est_allstates)
+
+    #
+
+    #-----------------------------------------------------------------------------
+    #make transition count and reweighting matrices for each simulation round
+    t5 = time.time()
+
+    #this will have to be replaced with a binning function that works for higher dimensions
+    trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
+
+    #calculate transitions by stacking the bin array with a time-shifted copy of itself
+    transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:])).transpose(1,2,0)
+
+    n_states = len(binbounds)+1
+    nrounds = len(trjs)-1
+
+    transition_counts_all = np.zeros((nrounds, n_states, n_states))
+    reweight_matrices_all = []
+
+    #there's probably some way to vectorize this but it's not currently (12/15/25) the limiting factor in code speed
+    #calculate reweighted TPMs for every round
+    for t in range(nrounds):
+        #count transitions
+        for tr in transitions[t]:
+            transition_counts_all[t, tr[1], tr[0]] += 1
+
+        reweight_matrices_all.append(np.outer(grid_weights[t], np.reciprocal(grid_weights[t])))
+
+    reweight_matrices_all = np.stack(reweight_matrices_all)
+
+    t6 = time.time()
+    print(f"MSM 3, part 1: transitions and reweight matrices: {t6-t5}")
+
+    #-----------------------------------------------------------------------------
+    #calculate equilibrium probabilities for the set of states sampled in each round
+
+    prob_est_all = []
+    cols_all = []
+    n_matrices = []
+
+    #TODO; what if we just got the MSM free energy estimate for each pair of states (all n^2 of them) and then assembled those?
+    #then we don't need to worry about finding pairs of simulations which sample exactly the same states
+    #and ergodic trimming is rarely a problem and is very easy
+    #this also lets weights account more easily for regional variation in sampling
+    #and the number of matrices no longer keeps growing with the number of rounds
+
+    for c1 in transition_counts_all:
+        t11 = time.time()
+
+        cols_1 = np.where(np.sum(c1, axis=1) > 0)[0]
+        cols_1_1hot = np.where(np.sum(c1, axis=1) > 0, 1, 0)
+
+        Pu_c_cols = []
+        for c2, reweight_matrix in zip(transition_counts_all, reweight_matrices_all):
+            #cols_2 = np.where(np.sum(c2, axis=1) > 0)[0]
+            cols_2_1hot = np.where(np.sum(c2, axis=1) > 0, 1, 0)
+
+            if np.dot(cols_1_1hot, cols_2_1hot) == sum(cols_1_1hot):
+
+                # print(c2)
+                # print(cols_1)
+                # print(c2[cols_1][:,cols_1])
+                # symmetrizing appears to make energy estimates worse, probably for reasons connected to nonequilibrium sampling or the asymmetry of the reweighting matrix
+                transition_counts_i = c2[cols_1][:,cols_1]
+                #transition_counts_i_s = (transition_counts_i+transition_counts_i.transpose())/2
+
+                #normalize transition count matrix to transition rate matrix
+                #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
+                # so that the probability associated with each element of X(t) is preserved 
+                # (though not all at one index) when X(t) is multiplied by the TPM
+                tpm = normalize(transition_counts_i, axis=0, norm='l1')
+
+                Pu_c_cols.append(np.multiply(tpm, reweight_matrix[cols_1][:,cols_1]))
+        
+        #for weighted averaging in the future?
+        n_matrices.append(len(Pu_c_cols))
+
+        Pu_arr = np.array(Pu_c_cols)
+        Pu_mean = np.mean(Pu_arr, axis=0)
+
+        t12 = time.time()
+        #print(f"P_u matrix construction: {t12-t11}")
+
+        #print("VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV")
+
+        #TODO return separate estimates for all connected components instead of just the greatest one
+        # failure to do this may have to do with slow convergence outside the main well
+
+        #identify the greatest connected component of the transition counts matrix, 
+        # which is only normally a problem when building haMSMs
+        connected_states = connected_components(Pu_mean, directed=True, connection='strong')[1]
+        cc_inds, cc_sizes = np.unique(connected_states, return_counts=True)
+
+        if len(cc_sizes) == 0:
+            print("no connected components detected")
+            return [[1]], [0]
+
+        greatest_connected_component = cc_inds[np.argmax(cc_sizes)]
+            
+        #remove all other components
+        smaller_component_indices = [i for i, ccgroup in enumerate(connected_states) if ccgroup != greatest_connected_component]
+        
+        gcc_indices = np.where(connected_states == greatest_connected_component)[0]
+        cols_1_connected = cols_1[gcc_indices]
+        
+        sc_indices = np.where(connected_states != greatest_connected_component)[0]
+        cols_1_disconnected = cols_1[sc_indices]
+
+        #print(sc_indices)
+        #print(cols_1_1hot)
+        
+        cols_1_1hot[cols_1_disconnected] = 0
+        #print(cols_1_1hot)
+
+        cols_all.append(cols_1_1hot)
+
+        # print(f"cols1: {cols_1}")
+        # print(f"cols1_connected: {cols_1_connected}")
+        # print(f"smaller comps: {smaller_component_indices}")
+        
+        Pu_mean = np.delete(Pu_mean, smaller_component_indices, 0)
+        Pu_mean = np.delete(Pu_mean, smaller_component_indices, 1)
+
+        # plt.imshow(Pu_mean)
+        # plt.show()
+        # plt.imshow(Pu_mean==0)
+        # plt.show()
+
+        #calculate equilibrium probabilities for the (connected) set of states sampled in c1
+        pops_msm_i = auxilliary_MSM_methods.tpm_2_eqprobs_v3(Pu_mean)
+        pops_msm_i /= np.sum(pops_msm_i) #I believe this is redundant
+
+        #construct equilibrium probability vector for all states
+        pops_msm_i_allstates = np.zeros(n_states)
+        pops_msm_i_allstates[cols_1_connected] = pops_msm_i.flatten()
+
+        for aaa, bbb in zip(pops_msm_i_allstates, cols_1_1hot):
+            if (bbb == 0 and aaa != 0) or (bbb != 0 and aaa == 0):
+                print("error in reconstructing full-state probability vector")
+                print(pops_msm_i_allstates)
+                print(cols_1_1hot)
+                sys.exit(0)
+
+        prob_est_all.append(pops_msm_i_allstates)
+
+        t13 = time.time()
+        #print(f"P_u matrix solution: {t13-t12}")
+
+        #print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+
+    t7 = time.time()
+    print(f"MSM 3, part 2: MSM construction: {t7-t6}")
+
+    #     plt.plot(pops_msm_i_allstates)
+    # plt.show()
+
+    # plt.plot(n_matrices)
+    # plt.show()
+    # import sys
+    # sys.exit(0)
+
+    #-----------------------------------------------------------------------------
+    #align energy landscapes based on equal populations in overlapping states
+
+    landscape_comparison_weights = np.zeros((len(prob_est_all), len(prob_est_all)))
+    deltaG_matrix = np.zeros((len(prob_est_all), len(prob_est_all)))
+
+    # print("-------------------------")
+
+    for i, (p1, c1, n1) in enumerate(zip(prob_est_all, cols_all, n_matrices)):
+        for j, (p2, c2, n2) in enumerate(zip(prob_est_all, cols_all, n_matrices)):
+            c12 = np.multiply(c1,c2)
+            if sum(c12) > 0 and i != j:
+                if sum(np.multiply(p2, c12)) == 0 or sum(np.multiply(p1, c12)) == 0:
+                    print(f"p1: {np.multiply(p1, c12)}")
+                    print(p1)
+                    print(c1)
+                    print(f"p2: {np.multiply(p2, c12)}")
+                    print(p2)
+                    print(c2)
+
+                pop_ratio = sum(np.multiply(p2, c12))/sum(np.multiply(p1, c12))
+                deltaG_matrix[i,j] = -kT*np.log(pop_ratio)
+                #I have no theoretical justification for this specific weighting scheme
+                landscape_comparison_weights[i,j] = n1*n2*sum(c12) #weight by number of matrices used to calculate each estimate and number of overlapping states
+                #not including n1 and n2 made things worse anecdotally
+
+    # print("-------------------------")
+
+    t8 = time.time()
+    print(f"MSM 3, part 3: landscape comparison matrix: {t8-t7}")
+
+    fe_shifts = align_free_energy_offsets(deltaG_matrix, landscape_comparison_weights, gauge="zero")
+    #minimize_weighted_G2(deltaG_matrix, landscape_comparison_weights) #method written by chatGPT
+    # print(fe_shifts)
+    # plt.hist(fe_shifts)
+    # plt.show()
+
+    #Beware this is full of infinities for unsampled states
+    with np.errstate(divide = 'ignore'):
+        deltaG_shifted = np.stack([-kT*np.log(prob_est/kT)-shift for prob_est, shift in zip(prob_est_all, fe_shifts)])
+    #print(deltaG_shifted)
+    #plt.matshow(deltaG_shifted)  # <-- very useful
+    #plt.show()
+
+    cols_mat = np.stack(cols_all)
+
+    states_sampled = np.where(np.sum(cols_mat, axis=0) > 0)[0]
+    states_sampled_1hot = np.where(np.sum(cols_mat, axis=0) > 0, 1, 0)
+
+    #print(cols_mat.shape)
+
+    n_matrices_tiled = np.tile(np.array(n_matrices), (n_states,1)).transpose()
+    #print(n_matrices_tiled)
+    #print(np.tile(np.array(n_matrices), (cols_mat.shape[1],1)).transpose().shape)
+    weight_matrix = cols_mat #np.multiply(cols_mat, n_matrices_tiled)
+
+    deltaG_average_sampled = np.average(np.nan_to_num(deltaG_shifted[:,states_sampled], posinf=0.0, neginf=0.0), axis=0, weights=weight_matrix[:,states_sampled])
+
+    msm_v3_pops_sampled = np.exp(-deltaG_average_sampled/kT)
+    msm_v3_pops_sampled /= np.sum(msm_v3_pops_sampled)
+    msm_v3_pops_all = np.zeros(n_states)
+    msm_v3_pops_all[states_sampled] = msm_v3_pops_sampled
+
+    deltaG_average = np.zeros(n_states)
+    deltaG_average[states_sampled] = deltaG_average_sampled
+
+    t9 = time.time()
+    print(f"MSM 3, part 4: final assembly: {t9-t8}")
+
+    #print(deltaG_average)
+
+    for gi in deltaG_shifted:
+        plt.plot(gi)
+    
+    plt.plot(states_sampled, deltaG_average_sampled, linewidth=2, color='black', zorder = 999999)
+    
+    plt.plot(deltaG_shifted[-1], linewidth=2, color='grey', linestyle="dashed", zorder = 99999)
+
+    true_populations, true_energies = system.normalized_pops_energies(kT, bincenters)
+
+    plt.plot(-kT*np.log(true_populations), linewidth=2, color='red', zorder = 99998)
+
+    plt.show()
+
+    return msm_v3_pops_all
+
+
+
+
+
+    ################################# trimmings #####################################
+
+        # print("-------------------------------------------------------")
+        # print(pops_msm_i_allstates)
+        # print(pops_msm_j_allstates)
+
+        # #print(pops_msm_i)
+
+        # pops_msm_i_allstates = np.zeros(n_states)
+        # k=0
+        # for i in range(n_states):
+        #     if cols_1_1hot[i] == 1:
+        #         pops_msm_i_allstates[i] = pops_msm_i[k]
+        #         k+=1
+
+    # #all reweighted transition probability matrices, for averaging
+    # Pu_all = [] 
+
+    # #calculate reweighted TPMs for every round
+    # for t in range(len(trjs)-1):
+
+    #     #count transitions
+    #     transition_counts = np.zeros((n_states, n_states))
+    #     for tr in transitions[t]:
+    #         transition_counts[tr[1]][tr[0]] += 1
+
+    #     #normalize transition count matrix to transition rate matrix
+    #     #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
+    #     # so that the probability associated with each element of X(t) is preserved 
+    #     # (though not all at one index) when X(t) is multiplied by the TPM
+    #     tpm = normalize(transition_counts, axis=0, norm='l1')
+
+    #     #project vectors from unbiased basis into the basis with the metadynamics bias V
+    #     #[:, np.newaxis] makes a row vector into a column vector
+    #     reweight_matrix = np.outer(grid_weights[t], np.reciprocal(grid_weights[t]))
+
+    #     Pu = np.multiply(reweight_matrix, tpm)
+
+    #     Pu_all.append(Pu)
+
+    # puv_arr = np.array(Pu_all)
+
+    # puv_mean = np.mean(puv_arr, axis=0)
+
+    # #calculate first eigenvector corresponding to equilibrium probability
+
+    # pops_msm_v2 = MSM_methods.tpm_2_eqprobs(puv_mean)
+    # pops_msm_v2 /= np.sum(pops_msm_v2)
+
+
+#seems to have a bug; written by chatGPT
+# def minimize_weighted_G2(G0, W):
+#     """
+#     Solve for v that minimizes sum_{ij} W_ij (G0_ij + v_i - v_j)^2
+
+#     Parameters
+#     ----------
+#     G0 : (n, n) ndarray
+#         Base matrix G_0
+#     W : (n, n) ndarray
+#         Weight matrix (assumed non-negative)
+
+#     Returns
+#     -------
+#     v : (n,) ndarray
+#         Minimizing vector v, with gauge sum(v) = 0
+#     """
+#     G0 = np.asarray(G0, dtype=float)
+#     W = np.asarray(W, dtype=float)
+
+#     n = G0.shape[0]
+#     assert G0.shape == (n, n)
+#     assert W.shape == (n, n)
+
+#     # Row and column sums of W
+#     row_sum = W.sum(axis=1)
+#     col_sum = W.sum(axis=0)
+
+#     # Construct Laplacian-like matrix L
+#     L = np.zeros((n, n))
+
+#     # Diagonal
+#     L[np.diag_indices(n)] = row_sum + col_sum
+
+#     # Off-diagonals
+#     for i in range(n):
+#         for j in range(n):
+#             if i != j:
+#                 L[i, j] = -(W[i, j] + W[j, i])
+
+#     # Construct RHS b
+#     b = (W.T * G0).sum(axis=1) - (W * G0).sum(axis=1)
+
+#     # Impose gauge: sum(v) = 0
+#     # Replace last row with constraint
+#     L[-1, :] = 1.0
+#     b[-1] = 0.0
+
+#     # Solve
+#     v = solve(L, b)
+
+#     return v
