@@ -136,7 +136,7 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
     nrounds = len(trjs)-1
 
     transition_counts_all = np.zeros((nrounds, n_states, n_states))
-    tpm_all = np.zeros((nrounds, n_states, n_states))
+    #tpm_all = np.zeros((nrounds, n_states, n_states))
     reweight_matrices_all = np.zeros((nrounds, n_states, n_states))
 
     #there's probably some way to vectorize this but it's not currently (12/15/25) the limiting factor in code speed
@@ -148,9 +148,9 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
 
         reweight_matrices_all[t] = np.outer(grid_weights[t], np.reciprocal(grid_weights[t]))
 
-        tpm_all[t] = normalize(transition_counts_all[t], axis=1, norm='l1') #TODO can't do this in here since the normalization is different with only 2 states
+        #tpm_all[t] = normalize(transition_counts_all[t], axis=1, norm='l1') #TODO can't do this in here since the normalization is different with only 2 states
 
-    p_u = np.multiply(tpm_all, reweight_matrices_all)
+    #p_u = np.multiply(tpm_all, reweight_matrices_all)
 
     #q = np.multiply
 
@@ -162,8 +162,14 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
     n_pairs = int(round(n_states*(n_states-1)/2))
 
     probs_est = np.zeros([n_pairs, 2])
-    state_pairs = np.zeros([n_pairs, 2])
+    state_pairs = np.zeros([n_pairs, 2], dtype=int)
     interstate_transitions = np.zeros(n_pairs)
+    used_transitions = np.zeros(n_pairs)
+
+    dG = []
+    dG_mat = np.zeros((n_states, n_states))
+
+    #t_norm = 0
 
     pair_i = 0
     for s1 in range(n_states):
@@ -171,44 +177,95 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
             state_pairs[pair_i] = [s1, s2]
 
             #take the submatrix of p_u corresponding to transitions between states s1 and s2
-            q = p_u[:,(s1,s2)][:,:,(s1,s2)] #can this be reduced to one indexing operation?
-            print(q.shape)
-    
+            counts_12 = transition_counts_all[:,(s1,s2)][:,:,(s1,s2)] #can this be reduced to one indexing operation?
+            #print(counts_12.shape)
+
+            reweight_12 = reweight_matrices_all[:,(s1,s2)][:,:,(s1,s2)] #can this be reduced to one indexing operation?
+
+            both_sampled = np.where(np.prod(np.sum(counts_12, axis=1), axis=1)>0)
+            #print(both_sampled)
+
+            counts_12_sampled = counts_12[both_sampled]
+            reweight_12_sampled = reweight_12[both_sampled]
+
+            #ta = time.time()
+            #normalize transition count matrix to transition rate matrix
+            col_sums = np.sum(counts_12_sampled, axis=1, keepdims=True)
+            p_uv = counts_12_sampled / col_sums
+
+            # p_uv = np.zeros(counts_12.shape)
+            # for t in range(nrounds):
+            #     p_uv[t] = normalize(counts_12[t], axis=0, norm='l1')
+            #tb = time.time()
+
+            #t_norm += (tb-ta)
+
+            #reweight transition probability matrix
+            p_u = np.multiply(p_uv, reweight_12_sampled)
+
+
             #q_ind = {1 if transitions begin from both states at each time point, 0 otherwise}
             #this is to avoid native-state bias from including transition matrices which don't sample both states
-            q_ind = np.prod(np.sum(q, axis=1), axis=1)
-            
+            both_sampled_1hot = np.where(np.prod(np.sum(p_u, axis=1), axis=1)>0, 1, 0)
+            #both_sampled = np.where(np.multiply(counts_12[:,0,1], counts_12[:,1,0])>0, 1, 0)
+
             #total number of transitions at each time point, for weighting
-            n_transitions_t = np.sum(q, axis=(1,2))
-            print(n_transitions_t)
-            print(n_transitions_t.shape)
+            n_transitions_t = np.sum(counts_12_sampled, axis=(1,2))
+            # print(n_transitions_t)
+            # print(n_transitions_t.shape)
 
-            if sum(q_ind) > 0: #if there are no transitions at all (i.e. both states are unsampled), continue to the next state pair (averaging will crash)
+            if sum(both_sampled_1hot) > 0: #if there are no transitions at all (i.e. both states are unsampled), continue to the next state pair (averaging will crash)
 
-                pair_weights_t = np.multiply(q_ind, n_transitions_t)
+                pair_weights_t = np.multiply(both_sampled_1hot, n_transitions_t)
 
-                q_avg = np.average(q, axis=0, weights=pair_weights_t)
-                print(q_avg)
+                p_u_avg = np.average(p_u, axis=0, weights=pair_weights_t)
 
                 #ergodic trimming, which is very easy for two states
-                if q_avg[0,1] > 0 and q_avg[1,0] > 0:
-                    #I think this would create biases if used for averaging across time slices but not for weighting between different pairs of statesq
-                    interstate_transitions[pair_i] = np.sum((q[:,0,1],q[:,1,0]))
-
+                if p_u_avg[0,1] > 0 and p_u_avg[1,0] > 0: # and p_u_avg[0,0] > 0 and p_u_avg[1,1] > 0:
+                    # print(pair_weights_t)
+                    # print(p_u_avg)
+                    #I think this would create biases if used for averaging across time slices but not for weighting between different pairs of states
+                    interstate_transitions[pair_i] = np.sum((counts_12_sampled[:,0,1], counts_12_sampled[:,1,0]))
+                    used_transitions[pair_i] = np.sum(pair_weights_t)
                     #larger eigenvalue calculated with quadratic formula
-                    l_0 = (q_avg[0,0]+q_avg[1,1] + np.sqrt((q_avg[0,0]+q_avg[1,1])**2 - 4*(q_avg[0,0]*q_avg[1,1]+q_avg[0,1]*q_avg[1,0])))/2
-                    
+                    #l_0 = (p_u_avg[0,0]+p_u_avg[1,1] + np.sqrt((p_u_avg[0,0]+p_u_avg[1,1])**2 - 4*(p_u_avg[0,0]*p_u_avg[1,1]+p_u_avg[0,1]*p_u_avg[1,0])))/2
+                    #print(l_0)
+
+                    #print(f"discriminant = {(p_u_avg[0,0] + p_u_avg[1,1])**2 - 4*(p_u_avg[0,0]*p_u_avg[1,1] + p_u_avg[0,1]*p_u_avg[1,0])}")
+
                     #calculate normalized eigenvector and add it to probs_est
-                    x1 = -q_avg[0,1]/(q_avg[0,0]-l_0-q_avg[0,1])
+                    l_0 = 1 #this is always true for 2x2 rewighted TPMs
+                    x1 = -p_u_avg[0,1]/(p_u_avg[0,0]-l_0-p_u_avg[0,1])
                     x2 = 1-x1
+
+                    if x1 > 1 or x1 < 0:
+                        print(f"eigenvector calculation error: x1={x1}, x2={x2}")
+                        print(p_u_avg)
+                        sys.exit(0)
 
                     probs_est[pair_i] = [x1, x2]
 
+                    dG.append(-kT*np.log(x2/x1))
+                    dG_mat[s1,s2] = -kT*np.log(x2/x1)
 
             pair_i += 1
 
+    # plt.hist([dGi for dGi in dG if dGi != 0], bins=50)
+    # plt.show()
+
+
+    # # display_mat = np.zeros((n_states, n_states))
+    # # for sp, dg in zip(state_pairs, dG):
+    # #     print(sp)
+    # #     display_mat[sp[0], sp[1]] = dg
+    # plt.imshow(dG_mat)
+    # plt.colorbar()
+    # plt.show()
+
+
     t7 = time.time()
     print(f"MSM 4, part 2: pairwise population estimates: {t7-t6}")
+    #print(f"normalization time: {t_norm}")
 
 
 
@@ -357,12 +414,15 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
     for i, (p1, c1, n1) in enumerate(zip(probs_est, state_pairs, interstate_transitions)):
         probs_est_allstates[i, c1[0]] = p1[0]
         probs_est_allstates[i, c1[1]] = p1[1]
-        cols_mat[i, c1[0]] = 1
-        cols_mat[i, c1[1]] = 1
+        if n1 > 0:
+            cols_mat[i, c1[0]] = 1
+            cols_mat[i, c1[1]] = 1
 
         for j, (p2, c2, n2) in enumerate(zip(probs_est, state_pairs, interstate_transitions)):
-            if j <= i:
-                continue #we only need the upper triangular part of the matrix; the other half is redundant
+            if n1 == 0 or n2 == 0:
+                continue 
+            #strictly upper triangular matrices cause problems because they are singular
+            ##not true --> we only need the upper triangular part of the matrix; the other half is redundant
 
             #this is surely not the most elegant way to find the population ratio of overlapping states
             if c1[0] == c2[0]:
@@ -378,7 +438,7 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
 
             #prioritize the alignment of states with energy estimates built on more data
             #I don't have a theoretical justification for this specific weighting function
-            landscape_comparison_weights[i,j] = n1*n2
+            landscape_comparison_weights[i,j] = np.sqrt(n1*n2)
 
             # c12 = np.multiply(c1,c2)
             # if sum(c12) > 0 and i != j:
@@ -395,12 +455,75 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
             #     #I have no theoretical justification for this specific weighting scheme
             #     landscape_comparison_weights[i,j] = n1*n2 #weight by number of matrices used to calculate each estimate and number of overlapping states
 
+    pairs_estimated = np.where(np.sum(landscape_comparison_weights, axis=0) > 0)[0]
+    lcw_est = landscape_comparison_weights[pairs_estimated][:, pairs_estimated]
+    dg_est = deltaG_matrix[pairs_estimated][:, pairs_estimated]
+    # print(states_estimated)
+    # print(deltaG_matrix[states_estimated][:, states_estimated])
+    # print(deltaG_matrix[states_estimated][:, states_estimated].shape)
+
+    # print(np.max(landscape_comparison_weights))
+    # lcw_est_masked = np.ma.masked_where(lcw_est == 0, lcw_est)
+    # plt.imshow(lcw_est_masked)#, vmin = 0, vmax=1)
+    # plt.show()
+    # # print(np.max(deltaG_matrix))
+
+    # dg_est_masked = np.ma.masked_where(lcw_est == 0, dg_est)
+    # plt.imshow(dg_est_masked)#, vmin = 0, vmax=1)
+    # plt.show()
+
+    # # print(deltaG_matrix)
+    # deltaG_nonzero = [dGij for dGij in deltaG_matrix.flatten() if dGij != 0]
+    # plt.hist(deltaG_nonzero)
+    # plt.show()
+
     # print("-------------------------")
 
     t8 = time.time()
     print(f"MSM 4, part 3: landscape comparison matrix: {t8-t7}")
 
-    fe_shifts = align_free_energy_offsets(deltaG_matrix, landscape_comparison_weights, gauge="zero")
+    # print(dg_est.shape)
+    # print(lcw_est.shape)
+
+    #connectivity trimming
+    #ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+    connected_states = connected_components(dg_est, directed=True, connection='strong')[1]
+
+    cc_inds, cc_sizes = np.unique(connected_states, return_counts=True)
+
+    if len(cc_sizes) == 0:
+        print("no connected components detected")
+        return [[1]], [0]
+
+    greatest_connected_component = cc_inds[np.argmax(cc_sizes)]
+    
+    smaller_component_indices = [i for i, ccgroup in enumerate(connected_states) if ccgroup != greatest_connected_component]
+
+    dg_est  = np.delete(dg_est,  smaller_component_indices, 0)
+    dg_est  = np.delete(dg_est,  smaller_component_indices, 1)
+    lcw_est = np.delete(lcw_est, smaller_component_indices, 0)
+    lcw_est = np.delete(lcw_est, smaller_component_indices, 1)
+
+    gcc_indices = np.where(connected_states == greatest_connected_component)[0]
+    pairs_estimated = pairs_estimated[gcc_indices]
+
+    # lcw_est_masked = np.ma.masked_where(lcw_est == 0, lcw_est)
+    # plt.imshow(lcw_est_masked)#, vmin = 0, vmax=1)
+    # plt.show()
+
+    # dg_est_masked = np.ma.masked_where(lcw_est == 0, dg_est)
+    # plt.imshow(dg_est_masked)#, vmin = 0, vmax=1)
+    # plt.show()
+
+    #ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+    fe_shifts = align_free_energy_offsets(dg_est, lcw_est, gauge="zero") #function written by chatGPT
+
+    fe_shifts_allstates = np.zeros(n_pairs)
+    fe_shifts_allstates[pairs_estimated] = fe_shifts
+
+    #fe_shifts = align_free_energy_offsets(deltaG_matrix, landscape_comparison_weights, gauge="zero")
     #minimize_weighted_G2(deltaG_matrix, landscape_comparison_weights) #method written by chatGPT
     # print(fe_shifts)
     # plt.hist(fe_shifts)
@@ -408,34 +531,48 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
 
     #Beware this is full of infinities for unsampled states
     with np.errstate(divide = 'ignore'):
-        deltaG_shifted = np.stack([-kT*np.log(prob_est/kT)-shift for prob_est, shift in zip(probs_est_allstates, fe_shifts)])
-    #print(deltaG_shifted)
+        deltaG_shifted = np.stack([-kT*np.log(prob_est/kT)-shift for prob_est, shift in zip(probs_est_allstates, fe_shifts_allstates)])
+    #print(deltaG_shifted.shape)
     #plt.matshow(deltaG_shifted)  # <-- very useful
     #plt.show()
 
     #cols_mat = np.stack(cols_all)
 
-    states_sampled = np.where(np.sum(cols_mat, axis=0) > 0)[0]
+    states_sampled = np.unique(state_pairs[pairs_estimated].flatten())
+    #states_sampled = np.where(np.sum(cols_mat, axis=0) > 0)[0]
     #states_sampled_1hot = np.where(np.sum(cols_mat, axis=0) > 0, 1, 0)
 
     #print(cols_mat.shape)
 
-    #TODO use for weighting
-    #n_matrices_tiled = np.tile(interstate_transitions, (n_states,1)).transpose()
-    #print(n_matrices_tiled.shape)
+    #TODO use for weighting < this doesn't seem to help
+    n_matrices_tiled = np.tile(used_transitions, (n_states,1)).transpose()
+    # print(interstate_transitions)
+    # plt.plot(interstate_transitions)
+    # plt.show()
+    # print(n_matrices_tiled.shape)
+    # print(cols_mat.shape)
+    # #plt.imshow(n_matrices_tiled)
+    # plt.show()
 
     #print(np.tile(np.array(n_matrices), (cols_mat.shape[1],1)).transpose().shape)
-    weight_matrix = cols_mat #np.multiply(cols_mat, n_matrices_tiled)
+
+    #weighting seems to make things worse
+    #weight_matrix = cols_mat 
+    weight_matrix = np.multiply(cols_mat, n_matrices_tiled)
+    #print(cols_mat.shape)
+    # plt.plot(weight_matrix)
+    # plt.show()
 
     deltaG_average_sampled = np.average(np.nan_to_num(deltaG_shifted[:,states_sampled], posinf=0.0, neginf=0.0), axis=0, weights=weight_matrix[:,states_sampled])
 
     msm_pops_sampled = np.exp(-deltaG_average_sampled/kT)
+    z = np.sum(msm_pops_sampled)
     msm_pops_sampled /= np.sum(msm_pops_sampled)
     msm_pops_all = np.zeros(n_states)
     msm_pops_all[states_sampled] = msm_pops_sampled
 
-    deltaG_average = np.zeros(n_states)
-    deltaG_average[states_sampled] = deltaG_average_sampled
+    #deltaG_average = np.zeros(n_states)
+    #deltaG_average[states_sampled] = -kT*np.log(msm_pops_sampled) #deltaG_average_sampled
 
     t9 = time.time()
     print(f"MSM 4, part 4: final assembly: {t9-t8}")
@@ -445,7 +582,7 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
     for gi in deltaG_shifted:
         plt.plot(gi)
     
-    plt.plot(states_sampled, deltaG_average_sampled, linewidth=2, color='black', zorder = 999999)
+    plt.plot(states_sampled, deltaG_average_sampled+kT*np.log(z), linewidth=2, color='black', zorder = 999999)
     
     plt.plot(deltaG_shifted[-1], linewidth=2, color='grey', linestyle="dashed", zorder = 99999)
 
