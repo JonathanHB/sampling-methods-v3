@@ -14,6 +14,7 @@ def run_for_n_timepoints(analysis_method, params, initial_state, n_timepoints):
     method_output = []
 
     for t in range(n_timepoints):
+        print(f"running segment {t+1} of {n_timepoints}") #for debugging with other print statements that overwrite the line below
         print(f"running segment {t+1} of {n_timepoints}", end='\r')
         method_state, observable, stopflag = analysis_method(method_state, params)
         method_output.append(observable)

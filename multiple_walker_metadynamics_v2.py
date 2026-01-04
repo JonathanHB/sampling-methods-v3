@@ -205,9 +205,9 @@ def parallel_trj_histogram_mtd(state, params):
     t5 = time.time()
     # print(f"MSM 2: {t5-t4}")
 
-    #misnamed because I'm lazy
-    msm_v3_pops_all = mtd_estimators.MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT)
-    #msm_v3_pops_all = mtd_estimators.MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT)
+    ##misnamed because I'm lazy
+    #msm_v3_pops_all = mtd_estimators.MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT)
+    msm_v3_pops_all = mtd_estimators.MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT)
 
     if False:
         ##################################################################################################

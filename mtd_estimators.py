@@ -178,6 +178,7 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
 
             #take the submatrix of p_u corresponding to transitions between states s1 and s2
             counts_12 = transition_counts_all[:,(s1,s2)][:,:,(s1,s2)] #can this be reduced to one indexing operation?
+            #counts_12 = (counts_12.transpose(0,2,1)+counts_12.transpose(0,1,2))/2 #symmetrize transition counts    <--- this makes the results much worse
             #print(counts_12.shape)
 
             reweight_12 = reweight_matrices_all[:,(s1,s2)][:,:,(s1,s2)] #can this be reduced to one indexing operation?
@@ -228,13 +229,13 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
                     interstate_transitions[pair_i] = np.sum((counts_12_sampled[:,0,1], counts_12_sampled[:,1,0]))
                     used_transitions[pair_i] = np.sum(pair_weights_t)
                     #larger eigenvalue calculated with quadratic formula
-                    #l_0 = (p_u_avg[0,0]+p_u_avg[1,1] + np.sqrt((p_u_avg[0,0]+p_u_avg[1,1])**2 - 4*(p_u_avg[0,0]*p_u_avg[1,1]+p_u_avg[0,1]*p_u_avg[1,0])))/2
+                    l_0 = (p_u_avg[0,0]+p_u_avg[1,1] + np.sqrt((p_u_avg[0,0]+p_u_avg[1,1])**2 - 4*(p_u_avg[0,0]*p_u_avg[1,1] - p_u_avg[0,1]*p_u_avg[1,0])))/2
                     #print(l_0)
 
-                    #print(f"discriminant = {(p_u_avg[0,0] + p_u_avg[1,1])**2 - 4*(p_u_avg[0,0]*p_u_avg[1,1] + p_u_avg[0,1]*p_u_avg[1,0])}")
+                    #print(f"discriminant = {(p_u_avg[0,0] + p_u_avg[1,1])**2 - 4*(p_u_avg[0,0]*p_u_avg[1,1] - p_u_avg[0,1]*p_u_avg[1,0])}")
 
                     #calculate normalized eigenvector and add it to probs_est
-                    l_0 = 1 #this is always true for 2x2 rewighted TPMs
+                    #l_0 = 1 #this is always true for individual 2x2 rewighted TPMs
                     x1 = -p_u_avg[0,1]/(p_u_avg[0,0]-l_0-p_u_avg[0,1])
                     x2 = 1-x1
 
@@ -662,7 +663,7 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     nrounds = len(trjs)-1
 
     transition_counts_all = np.zeros((nrounds, n_states, n_states))
-    reweight_matrices_all = []
+    reweight_matrices_all = np.zeros((nrounds, n_states, n_states))
 
     #there's probably some way to vectorize this but it's not currently (12/15/25) the limiting factor in code speed
     #calculate reweighted TPMs for every round
@@ -671,9 +672,7 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
         for tr in transitions[t]:
             transition_counts_all[t, tr[1], tr[0]] += 1
 
-        reweight_matrices_all.append(np.outer(grid_weights[t], np.reciprocal(grid_weights[t])))
-
-    reweight_matrices_all = np.stack(reweight_matrices_all)
+        reweight_matrices_all[t] = np.outer(grid_weights[t], np.reciprocal(grid_weights[t]))
 
     t6 = time.time()
     print(f"MSM 3, part 1: transitions and reweight matrices: {t6-t5}")
@@ -682,8 +681,12 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     #calculate equilibrium probabilities for the set of states sampled in each round
 
     prob_est_all = []
-    cols_all = []
+    cols_all_connected = []
     n_matrices = []
+
+    #cols_all      = np.where(np.sum(transition_counts_all, axis=1) > 0)
+    #cols_all_1hot = np.where(np.sum(transition_counts_all, axis=1) > 0, 1, 0)
+
 
     #TODO; what if we just got the MSM free energy estimate for each pair of states (all n^2 of them) and then assembled those?
     #then we don't need to worry about finding pairs of simulations which sample exactly the same states
@@ -691,39 +694,89 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     #this also lets weights account more easily for regional variation in sampling
     #and the number of matrices no longer keeps growing with the number of rounds
 
-    for c1 in transition_counts_all:
+    inner_loop_time = 0
+
+    for ci, c1 in enumerate(transition_counts_all):
         t11 = time.time()
 
-        cols_1 = np.where(np.sum(c1, axis=1) > 0)[0]
-        cols_1_1hot = np.where(np.sum(c1, axis=1) > 0, 1, 0)
+        # print("-------------")
+        # print(np.where(np.sum(c1, axis=0) > 0)[0])
+        # print(np.where(np.sum(c1, axis=1) > 0)[0])
 
-        Pu_c_cols = []
-        for c2, reweight_matrix in zip(transition_counts_all, reweight_matrices_all):
-            #cols_2 = np.where(np.sum(c2, axis=1) > 0)[0]
-            cols_2_1hot = np.where(np.sum(c2, axis=1) > 0, 1, 0)
+        cols_1 = np.where(np.sum(c1, axis=0) > 0)[0]          #axis??
+        cols_1_1hot = np.where(np.sum(c1, axis=0) > 0, 1, 0)          #axis?? #cols_all_1hot[ci] #
 
-            if np.dot(cols_1_1hot, cols_2_1hot) == sum(cols_1_1hot):
+        #print(cols_1)
 
-                # print(c2)
-                # print(cols_1)
-                # print(c2[cols_1][:,cols_1])
-                # symmetrizing appears to make energy estimates worse, probably for reasons connected to nonequilibrium sampling or the asymmetry of the reweighting matrix
-                transition_counts_i = c2[cols_1][:,cols_1]
-                #transition_counts_i_s = (transition_counts_i+transition_counts_i.transpose())/2
+        t6a = time.time()
 
-                #normalize transition count matrix to transition rate matrix
-                #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
-                # so that the probability associated with each element of X(t) is preserved 
-                # (though not all at one index) when X(t) is multiplied by the TPM
-                tpm = normalize(transition_counts_i, axis=0, norm='l1')
-
-                Pu_c_cols.append(np.multiply(tpm, reweight_matrix[cols_1][:,cols_1]))
+        #specifically timesteps where transitions from all states in cols_1 to other states in cols_1 are sampled
+        cols_i_1hot_nonbin = np.prod(np.sum(transition_counts_all[:,cols_1][:,:,cols_1], axis=1), axis = 1) #not a true 1 hot encoding since contents can be >1
+        timesteps_with_matching_cols = np.where(cols_i_1hot_nonbin > 0)[0]
         
-        #for weighted averaging in the future?
-        n_matrices.append(len(Pu_c_cols))
+        if len(timesteps_with_matching_cols) == 0:
+            #print("no matching columns found")
+            #print(timesteps_with_matching_cols)
+            continue
+        #timesteps_with_matching_cols = np.where(cols_all_1hot @ cols_1_1hot == sum(cols_1_1hot))[0]
+        # print(timesteps_with_matching_cols)
 
-        Pu_arr = np.array(Pu_c_cols)
-        Pu_mean = np.mean(Pu_arr, axis=0)
+        # print(transition_counts_all.shape)
+        # print(transition_counts_all[timesteps_with_matching_cols].shape)
+        # print(transition_counts_all[timesteps_with_matching_cols][:,cols_1].shape)
+
+        transition_counts_i = transition_counts_all[timesteps_with_matching_cols][:,cols_1][:,:,cols_1]
+        #print(transition_counts_i.shape)
+
+        #normalize transition count matrix to transition rate matrix
+        col_sums = np.sum(transition_counts_i, axis=1, keepdims=True)
+        #print(col_sums.shape)
+
+        #if all the transitions from a column go outside the set of columns for which transitions were sampled, skip this round
+        #in the future do ergodic trimming instead
+
+
+        # plt.imshow(col_sums)
+        # plt.show()
+        P_uv = transition_counts_i / col_sums
+        #print(P_uv.shape)
+        reweight_matrices_i = reweight_matrices_all[timesteps_with_matching_cols][:,cols_1][:,:,cols_1]
+        Puv_reweighted = np.multiply(P_uv, reweight_matrices_i)
+        Puv_reweighted_avg = np.mean(Puv_reweighted, axis=0)
+
+        if False: #slower but more readable code for constructing Pu_c_cols
+            Pu_c_cols = []
+            for c2, reweight_matrix in zip(transition_counts_all, reweight_matrices_all):
+                #cols_2 = np.where(np.sum(c2, axis=1) > 0)[0]
+                cols_2_1hot = np.where(np.sum(c2, axis=0) > 0, 1, 0)          #axis??
+
+                if np.dot(cols_1_1hot, cols_2_1hot) == sum(cols_1_1hot):
+
+                    # print(c2)
+                    # print(cols_1)
+                    # print(c2[cols_1][:,cols_1])
+                    # symmetrizing appears to make energy estimates worse, probably for reasons connected to nonequilibrium sampling or the asymmetry of the reweighting matrix
+                    transition_counts_i = c2[cols_1][:,cols_1]
+                    #transition_counts_i_s = (transition_counts_i+transition_counts_i.transpose())/2
+
+                    #normalize transition count matrix to transition rate matrix
+                    #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
+                    # so that the probability associated with each element of X(t) is preserved 
+                    # (though not all at one index) when X(t) is multiplied by the TPM
+                    tpm = normalize(transition_counts_i, axis=0, norm='l1')
+
+                    Pu_c_cols.append(np.multiply(tpm, reweight_matrix[cols_1][:,cols_1]))
+
+        t6b = time.time()
+        inner_loop_time += t6b - t6a
+
+        n_matrices.append(len(timesteps_with_matching_cols))
+
+        #for weighted averaging in the future?
+        #n_matrices.append(len(Pu_c_cols))
+
+        #Pu_arr = np.array(Pu_c_cols)
+        #Puv_reweighted_avg = np.mean(Pu_arr, axis=0)
 
         t12 = time.time()
         #print(f"P_u matrix construction: {t12-t11}")
@@ -735,7 +788,7 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
 
         #identify the greatest connected component of the transition counts matrix, 
         # which is only normally a problem when building haMSMs
-        connected_states = connected_components(Pu_mean, directed=True, connection='strong')[1]
+        connected_states = connected_components(Puv_reweighted_avg, directed=True, connection='strong')[1]
         cc_inds, cc_sizes = np.unique(connected_states, return_counts=True)
 
         if len(cc_sizes) == 0:
@@ -759,14 +812,14 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
         cols_1_1hot[cols_1_disconnected] = 0
         #print(cols_1_1hot)
 
-        cols_all.append(cols_1_1hot)
+        cols_all_connected.append(cols_1_1hot)
 
         # print(f"cols1: {cols_1}")
         # print(f"cols1_connected: {cols_1_connected}")
         # print(f"smaller comps: {smaller_component_indices}")
         
-        Pu_mean = np.delete(Pu_mean, smaller_component_indices, 0)
-        Pu_mean = np.delete(Pu_mean, smaller_component_indices, 1)
+        Puv_reweighted_avg = np.delete(Puv_reweighted_avg, smaller_component_indices, 0)
+        Puv_reweighted_avg = np.delete(Puv_reweighted_avg, smaller_component_indices, 1)
 
         # plt.imshow(Pu_mean)
         # plt.show()
@@ -774,7 +827,7 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
         # plt.show()
 
         #calculate equilibrium probabilities for the (connected) set of states sampled in c1
-        pops_msm_i = auxilliary_MSM_methods.tpm_2_eqprobs_v3(Pu_mean)
+        pops_msm_i = auxilliary_MSM_methods.tpm_2_eqprobs_v3(Puv_reweighted_avg)
         pops_msm_i /= np.sum(pops_msm_i) #I believe this is redundant
 
         #construct equilibrium probability vector for all states
@@ -798,6 +851,9 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     t7 = time.time()
     print(f"MSM 3, part 2: MSM construction: {t7-t6}")
 
+    print(f"MSM 3, part 2: MSM construction inner loop: {inner_loop_time}")
+
+
     #     plt.plot(pops_msm_i_allstates)
     # plt.show()
 
@@ -809,28 +865,50 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     #-----------------------------------------------------------------------------
     #align energy landscapes based on equal populations in overlapping states
 
-    landscape_comparison_weights = np.zeros((len(prob_est_all), len(prob_est_all)))
-    deltaG_matrix = np.zeros((len(prob_est_all), len(prob_est_all)))
+    #landscape_comparison_weights = np.zeros((len(prob_est_all), len(prob_est_all)))
+    #deltaG_matrix = np.zeros((len(prob_est_all), len(prob_est_all)))
 
-    # print("-------------------------")
+    print("-------------------------")
+    c1_mat = np.tile(np.stack(cols_all_connected),(len(cols_all_connected),1,1))
+    c2_mat = c1_mat.transpose((1,0,2))
+    c1c2 = np.multiply(c1_mat, c2_mat) #1-hot-encoded overlap vectors between each pair of estimates, forming a 3d [n_estimates, n_estimates, n_states] array
+    overlap_areas = np.sum(c1c2, axis=2)
 
-    for i, (p1, c1, n1) in enumerate(zip(prob_est_all, cols_all, n_matrices)):
-        for j, (p2, c2, n2) in enumerate(zip(prob_est_all, cols_all, n_matrices)):
-            c12 = np.multiply(c1,c2)
-            if sum(c12) > 0 and i != j:
-                if sum(np.multiply(p2, c12)) == 0 or sum(np.multiply(p1, c12)) == 0:
-                    print(f"p1: {np.multiply(p1, c12)}")
-                    print(p1)
-                    print(c1)
-                    print(f"p2: {np.multiply(p2, c12)}")
-                    print(p2)
-                    print(c2)
+    landscape_comparison_weights = np.multiply(np.outer(n_matrices, n_matrices), overlap_areas)
 
-                pop_ratio = sum(np.multiply(p2, c12))/sum(np.multiply(p1, c12))
-                deltaG_matrix[i,j] = -kT*np.log(pop_ratio)
-                #I have no theoretical justification for this specific weighting scheme
-                landscape_comparison_weights[i,j] = n1*n2*sum(c12) #weight by number of matrices used to calculate each estimate and number of overlapping states
-                #not including n1 and n2 made things worse anecdotally
+    p1_mat = np.tile(np.stack(prob_est_all),(len(prob_est_all),1,1))
+    p2_mat = p1_mat.transpose((1,0,2))
+
+    pc1_mat = np.sum(np.multiply(p1_mat, c1_mat), axis=2)
+    pc2_mat = np.sum(np.multiply(p2_mat, c1_mat), axis=2)
+    print(pc1_mat.shape)
+
+    deltaG_matrix = np.divide(pc2_mat, pc1_mat, out=np.zeros_like(pc2_mat), where=pc1_mat!=0)
+
+    plt.imshow(deltaG_matrix)
+    plt.show()
+
+    if False:
+        for i, (p1, c1, n1) in enumerate(zip(prob_est_all, cols_all_connected, n_matrices)):
+            for j, (p2, c2, n2) in enumerate(zip(prob_est_all, cols_all_connected, n_matrices)):
+                c12 = c1c2[i,j] #np.multiply(c1,c2)
+                if sum(c12) > 0 and i != j:
+                    if sum(np.multiply(p2, c12)) == 0 or sum(np.multiply(p1, c12)) == 0:
+                        print(f"p1: {np.multiply(p1, c12)}")
+                        print(p1)
+                        print(c1)
+                        print(f"p2: {np.multiply(p2, c12)}")
+                        print(p2)
+                        print(c2)
+
+                    deltaG_matrix[i,j] = sum(np.multiply(p2, c12))/sum(np.multiply(p1, c12))
+                    #pop_ratio = sum(np.multiply(p2, c12))/sum(np.multiply(p1, c12))
+                    #deltaG_matrix[i,j] = -kT*np.log(pop_ratio)
+                    #I have no theoretical justification for this specific weighting scheme
+                    landscape_comparison_weights[i,j] = n1*n2*sum(c12) #weight by number of matrices used to calculate each estimate and number of overlapping states
+                    #not including n1 and n2 made things worse anecdotally
+
+    deltaG_matrix = np.nan_to_num(-kT*np.log(deltaG_matrix))
 
     # print("-------------------------")
 
@@ -850,7 +928,7 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     #plt.matshow(deltaG_shifted)  # <-- very useful
     #plt.show()
 
-    cols_mat = np.stack(cols_all)
+    cols_mat = np.stack(cols_all_connected)
 
     states_sampled = np.where(np.sum(cols_mat, axis=0) > 0)[0]
     states_sampled_1hot = np.where(np.sum(cols_mat, axis=0) > 0, 1, 0)
@@ -865,6 +943,7 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     deltaG_average_sampled = np.average(np.nan_to_num(deltaG_shifted[:,states_sampled], posinf=0.0, neginf=0.0), axis=0, weights=weight_matrix[:,states_sampled])
 
     msm_v3_pops_sampled = np.exp(-deltaG_average_sampled/kT)
+    z = np.sum(msm_v3_pops_sampled)
     msm_v3_pops_sampled /= np.sum(msm_v3_pops_sampled)
     msm_v3_pops_all = np.zeros(n_states)
     msm_v3_pops_all[states_sampled] = msm_v3_pops_sampled
@@ -880,15 +959,17 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     for gi in deltaG_shifted:
         plt.plot(gi)
     
-    plt.plot(states_sampled, deltaG_average_sampled, linewidth=2, color='black', zorder = 999999)
+    plt.plot(states_sampled, deltaG_average_sampled+kT*np.log(z), linewidth=2, color='black', zorder = 999999)
     
-    plt.plot(deltaG_shifted[-1], linewidth=2, color='grey', linestyle="dashed", zorder = 99999)
+    #plt.plot(deltaG_shifted[-1], linewidth=2, color='grey', linestyle="dashed", zorder = 99999)
 
     true_populations, true_energies = system.normalized_pops_energies(kT, bincenters)
 
-    plt.plot(-kT*np.log(true_populations), linewidth=2, color='red', zorder = 99998)
+    plt.plot(-kT*np.log(true_populations), linewidth=2, color='red', zorder = 999998)
 
     plt.show()
+
+    #sys.exit(0)
 
     return msm_v3_pops_all
 
