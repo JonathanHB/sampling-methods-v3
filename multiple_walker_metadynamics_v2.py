@@ -35,7 +35,8 @@ def parallel_trj_histogram_mtd(state, params):
     weights = np.concatenate((weights, new_weights), axis = 0)
     weights_before = np.concatenate((weights_before, new_weights_before), axis = 0)
     grid_weights = np.concatenate((grid_weights, new_grid_weights), axis = 0)
-    #print(grid_weights.shape)
+    print("grid!")
+    print(grid_weights.shape)
 
     total_mtd_weights = np.sum(np.sqrt(np.multiply(weights, weights_before)), axis=1) #np.sum(weights_before, axis=1) + np.sum(weights, axis=1)
 
@@ -205,9 +206,19 @@ def parallel_trj_histogram_mtd(state, params):
     t5 = time.time()
     # print(f"MSM 2: {t5-t4}")
 
+    ##################################################################################################
+    #----------------------------MSM-based population estimation v3----------------------------------#
+    ##################################################################################################
+
+    #this will have to be replaced with a binning function that works for higher dimensions
+    trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
+
+    #calculate transitions by stacking the bin array with a time-shifted copy of itself
+    transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:])).transpose(1,2,0)
+
     ##misnamed because I'm lazy
     #msm_v3_pops_all = mtd_estimators.MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT)
-    msm_v3_pops_all = mtd_estimators.MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT)
+    msm_v3_pops_all = mtd_estimators.MSM_v3(transitions, binbounds, grid_weights, system, bincenters, kT)
 
     if False:
         ##################################################################################################
@@ -508,7 +519,7 @@ def parallel_trj_histogram_mtd(state, params):
     cumulative_molecular_time += nsegs*save_period
     cumulative_aggregate_time += n_parallel*nsegs*save_period
 
-    return (trjs, weights, weights_before, grid_weights, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_grid_masked, pops_msm, pops_msm_v2, msm_v3_pops_all), False #pops_grid_uncorrected, pops_hist, pops_grid, 
+    return (trjs, weights, weights_before, grid_weights, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_msm, msm_v3_pops_all), False #pops_grid_uncorrected, pops_hist, pops_grid, pops_msm_v2, pops_grid_masked, 
 
 
 
@@ -575,7 +586,7 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
     #but without the data type/structure requirement of a numpy array
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
 
-    observable_names = ["grid + histogram", "masked grid", "MSM", "MSM v2", "MSM v3"]
+    observable_names = ["weighted histogram", "count-reweighted MSM", "franken MSM"]
 
     return observables_x_time, observable_names
 

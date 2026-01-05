@@ -602,7 +602,9 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
 #----------------------------MSM-based population estimation v3----------------------------------#
 ##################################################################################################
 
-def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
+def MSM_v3(transitions, binbounds, grid_weights, system, bincenters, kT):
+
+    #print([tr.shape for tr in transitions])
 
     #-----------------------------------------------------------------------------
     #outline
@@ -653,16 +655,10 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     #make transition count and reweighting matrices for each simulation round
     t5 = time.time()
 
-    #this will have to be replaced with a binning function that works for higher dimensions
-    trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
-
-    #calculate transitions by stacking the bin array with a time-shifted copy of itself
-    transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:])).transpose(1,2,0)
-
     n_states = len(binbounds)+1
-    nrounds = len(trjs)-1
+    nrounds = len(transitions)
 
-    transition_counts_all = np.zeros((nrounds, n_states, n_states))
+    transition_counts_all = np.zeros((nrounds, n_states, n_states), dtype=int)
     reweight_matrices_all = np.zeros((nrounds, n_states, n_states))
 
     #there's probably some way to vectorize this but it's not currently (12/15/25) the limiting factor in code speed
@@ -711,8 +707,8 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
         t6a = time.time()
 
         #specifically timesteps where transitions from all states in cols_1 to other states in cols_1 are sampled
-        cols_i_1hot_nonbin = np.prod(np.sum(transition_counts_all[:,cols_1][:,:,cols_1], axis=1), axis = 1) #not a true 1 hot encoding since contents can be >1
-        timesteps_with_matching_cols = np.where(cols_i_1hot_nonbin > 0)[0]
+        cols_i_1hot_nonbin = np.all(np.any(transition_counts_all[:,cols_1][:,:,cols_1], axis=1), axis = 1) #not a true 1 hot encoding since contents can be >1
+        timesteps_with_matching_cols = np.where(cols_i_1hot_nonbin)[0]
         
         if len(timesteps_with_matching_cols) == 0:
             #print("no matching columns found")
@@ -728,17 +724,12 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
         transition_counts_i = transition_counts_all[timesteps_with_matching_cols][:,cols_1][:,:,cols_1]
         #print(transition_counts_i.shape)
 
+        t6b = time.time()
+
         #normalize transition count matrix to transition rate matrix
         col_sums = np.sum(transition_counts_i, axis=1, keepdims=True)
-        #print(col_sums.shape)
-
-        #if all the transitions from a column go outside the set of columns for which transitions were sampled, skip this round
-        #in the future do ergodic trimming instead
-
-
-        # plt.imshow(col_sums)
-        # plt.show()
         P_uv = transition_counts_i / col_sums
+
         #print(P_uv.shape)
         reweight_matrices_i = reweight_matrices_all[timesteps_with_matching_cols][:,cols_1][:,:,cols_1]
         Puv_reweighted = np.multiply(P_uv, reweight_matrices_i)
@@ -767,7 +758,6 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
 
                     Pu_c_cols.append(np.multiply(tpm, reweight_matrix[cols_1][:,cols_1]))
 
-        t6b = time.time()
         inner_loop_time += t6b - t6a
 
         n_matrices.append(len(timesteps_with_matching_cols))
@@ -865,10 +855,7 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     #-----------------------------------------------------------------------------
     #align energy landscapes based on equal populations in overlapping states
 
-    #landscape_comparison_weights = np.zeros((len(prob_est_all), len(prob_est_all)))
-    #deltaG_matrix = np.zeros((len(prob_est_all), len(prob_est_all)))
-
-    print("-------------------------")
+    #print("-------------------------")
     c1_mat = np.tile(np.stack(cols_all_connected),(len(cols_all_connected),1,1))
     c2_mat = c1_mat.transpose((1,0,2))
     c1c2 = np.multiply(c1_mat, c2_mat) #1-hot-encoded overlap vectors between each pair of estimates, forming a 3d [n_estimates, n_estimates, n_states] array
@@ -881,14 +868,21 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
 
     pc1_mat = np.sum(np.multiply(p1_mat, c1_mat), axis=2)
     pc2_mat = np.sum(np.multiply(p2_mat, c1_mat), axis=2)
-    print(pc1_mat.shape)
+    #print(pc1_mat.shape)
 
     deltaG_matrix = np.divide(pc2_mat, pc1_mat, out=np.zeros_like(pc2_mat), where=pc1_mat!=0)
 
-    plt.imshow(deltaG_matrix)
-    plt.show()
+    # for p in prob_est_all:
+    #     plt.plot(p)
+    # plt.show()
 
+    # print(deltaG_matrix)
+
+    #deprecated non-vectorized code
     if False:
+        landscape_comparison_weights = np.zeros((len(prob_est_all), len(prob_est_all)))
+        deltaG_matrix = np.zeros((len(prob_est_all), len(prob_est_all)))
+
         for i, (p1, c1, n1) in enumerate(zip(prob_est_all, cols_all_connected, n_matrices)):
             for j, (p2, c2, n2) in enumerate(zip(prob_est_all, cols_all_connected, n_matrices)):
                 c12 = c1c2[i,j] #np.multiply(c1,c2)
@@ -908,12 +902,50 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
                     landscape_comparison_weights[i,j] = n1*n2*sum(c12) #weight by number of matrices used to calculate each estimate and number of overlapping states
                     #not including n1 and n2 made things worse anecdotally
 
-    deltaG_matrix = np.nan_to_num(-kT*np.log(deltaG_matrix))
+    deltaG_matrix = np.nan_to_num(-kT*np.log(deltaG_matrix), nan=0.0, posinf=0.0, neginf=0.0)
+
+    # print(deltaG_matrix)
+    # plt.imshow(deltaG_matrix)
+    # plt.show()
 
     # print("-------------------------")
 
     t8 = time.time()
     print(f"MSM 3, part 3: landscape comparison matrix: {t8-t7}")
+
+
+    # #connectivity trimming
+    # #ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+    # connected_states = connected_components(landscape_comparison_weights, directed=True, connection='strong')[1]
+
+    # cc_inds, cc_sizes = np.unique(connected_states, return_counts=True)
+
+    # if len(cc_sizes) == 0:
+    #     print("no connected components detected")
+    #     return [[1]], [0]
+
+    # greatest_connected_component = cc_inds[np.argmax(cc_sizes)]
+    
+    # smaller_component_indices = [i for i, ccgroup in enumerate(connected_states) if ccgroup != greatest_connected_component]
+
+    # dg_est  = np.delete(deltaG_matrix, smaller_component_indices, 0)
+    # dg_est  = np.delete(dg_est, smaller_component_indices, 1)
+    # lcw_est = np.delete(landscape_comparison_weights, smaller_component_indices, 0)
+    # lcw_est = np.delete(lcw_est, smaller_component_indices, 1)
+
+    # gcc_indices = np.where(connected_states == greatest_connected_component)[0]
+
+    # #ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+
+    # plt.imshow(dg_est)
+    # plt.show()
+
+    #if np.sum(dg_est) != 0:
+    #fe_shifts = align_free_energy_offsets(dg_est, lcw_est, gauge="zero")
+    #else:
+    #    fe_shifts = np.zeros(dg_est.shape[0])
+    #    print("warning: no shifts required or no overlaps detected")
 
     fe_shifts = align_free_energy_offsets(deltaG_matrix, landscape_comparison_weights, gauge="zero")
     #minimize_weighted_G2(deltaG_matrix, landscape_comparison_weights) #method written by chatGPT
@@ -928,9 +960,13 @@ def MSM_v3(trjs, binbounds, grid_weights, system, bincenters, kT):
     #plt.matshow(deltaG_shifted)  # <-- very useful
     #plt.show()
 
-    cols_mat = np.stack(cols_all_connected)
+    #print("GCC indices:")
+    #print(gcc_indices)
+    #print(cols_all_connected)
 
+    cols_mat = np.stack(cols_all_connected) #[gcc_indices]
     states_sampled = np.where(np.sum(cols_mat, axis=0) > 0)[0]
+
     states_sampled_1hot = np.where(np.sum(cols_mat, axis=0) > 0, 1, 0)
 
     #print(cols_mat.shape)

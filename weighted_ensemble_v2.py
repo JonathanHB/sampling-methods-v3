@@ -354,7 +354,7 @@ def calc_observables_1(x_last, x, e_last, e, w, cb_last, cb, b_last, b, propagat
     #currently unused; lacks sufficient temporal resolution to be useful
     #mtd_weights = propagator.mtd_grid()  #get the metadynamics grid if it exists (otherwise None) 
 
-    return (trj_config_weighted, trj_weighted, cb_transitions, bin_transitions, mtd_data[1], mtd_transition_weights, len(w))
+    return (trj_config_weighted, trj_weighted, cb_transitions, bin_transitions, mtd_data[1], mtd_transition_weights, mtd_data[2], len(w))
 
 
 

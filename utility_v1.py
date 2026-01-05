@@ -183,4 +183,4 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
     #     print(np.mean(c))
     #     print(np.std(c))
 
-    return convergence_times, bs_times, bs_mean_coverage, bs_std_coverage, bs_mean_error, bs_std_error
+    return convergence_times, bs_times, bs_mean_coverage, bs_std_coverage, bs_mean_error, bs_std_error, observable_names

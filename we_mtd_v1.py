@@ -6,6 +6,8 @@ import weighted_ensemble_v2
 import propagators_v2
 import utility_v1
 
+import mtd_estimators
+
 
 #run dynamics and return the results
 #for arguments and returns see the comments in propagators.py
@@ -36,7 +38,7 @@ def we_mtd_histogram(state, params):
     
     #unpack inputs
     x, e, w, cb, b, propagator, cumulative_observables, cumulative_aggregate_time, cumulative_molecular_time = state
-    split_merge, config_binner, ensemble_classifier, binner, calc_observables, nrounds, walkers_per_bin, aggregate_simulation_limit = params
+    split_merge, config_binner, bincenters, ensemble_classifier, binner, calc_observables, nrounds, walkers_per_bin, aggregate_simulation_limit = params
 
     #run dynamics
     x, e, w, cb, b, propagator, new_observables = weighted_ensemble_v2.weighted_ensemble(x, e, w, cb, b, propagator, split_merge, config_binner, ensemble_classifier, binner, calc_observables, nrounds, walkers_per_bin)
@@ -50,7 +52,7 @@ def we_mtd_histogram(state, params):
     #----------------------------histogram-based population estimation----------------------------#
 
     #estimate state populations
-    cumulative_config_bins = np.concatenate([o[0] for o in observables], axis = 1).transpose()
+    cumulative_config_bins = np.concatenate([o[0] for o in observables[1:]], axis = 1).transpose()
 
     pops_hist = np.zeros(config_binner.n_bins)  #initialize estimated bin populations to 0
     for cbi in cumulative_config_bins:
@@ -61,13 +63,13 @@ def we_mtd_histogram(state, params):
 
     #----------------------------MSM-based population estimation----------------------------#
 
-    aggregate_transitions = np.concatenate([o[2] for o in observables], axis = 1).transpose()
+    aggregate_transitions = np.concatenate([o[2] for o in observables[1:]], axis = 1).transpose()
     eqp_msm = MSM_methods.transitions_to_eq_probs_v2(aggregate_transitions, config_binner.n_bins, weights=None, show_TPM=False)
 
 
     #----------------------------mtd-weighted MSM-based population estimation----------------------------#
 
-    mtd_transition_weights = np.concatenate([o[5] for o in observables])
+    mtd_transition_weights = np.concatenate([o[5] for o in observables[1:]])
     eqp_msm_weighted = MSM_methods.transitions_to_eq_probs_v2(aggregate_transitions, config_binner.n_bins, weights=mtd_transition_weights, show_TPM=False)
 
 
@@ -85,7 +87,7 @@ def we_mtd_histogram(state, params):
 
     #----------------------------combined grid+histogram-based population estimation----------------------------#
 
-    cumulative_mtd_weights = np.concatenate([o[4] for o in observables])
+    cumulative_mtd_weights = np.concatenate([o[4] for o in observables[1:]])
 
     pops_hist_mtd = np.zeros(config_binner.n_bins)  #initialize estimated bin populations to 0
     for cbi, cmtdw in zip(cumulative_config_bins, cumulative_mtd_weights):
@@ -97,7 +99,7 @@ def we_mtd_histogram(state, params):
     #----------------------------combined grid+histogram+we weight-based population estimation----------------------------#
     #this did not work well because WE weights are too noisy
     
-    cumulative_mtd_weights = np.concatenate([o[5] for o in observables])
+    cumulative_mtd_weights = np.concatenate([o[5] for o in observables[1:]])
 
     pops_hist_we_mtd = np.zeros(config_binner.n_bins)  #initialize estimated bin populations to 0
     for cbi, cmtdw in zip(cumulative_config_bins, cumulative_mtd_weights):
@@ -105,7 +107,16 @@ def we_mtd_histogram(state, params):
 
     pops_hist_we_mtd /= np.sum(pops_hist_we_mtd)  #normalize estimated bin populations
 
-    return (x, e, w, cb, b, propagator, observables, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, eqp_msm_weighted, pops_hist_mtd), cumulative_aggregate_time >= aggregate_simulation_limit
+    #----------------------------franken MSM----------------------------#
+
+    stacked_transitions = [o[2].transpose() for o in observables[1:]] #the number of transitions is not constant so these cannot be stacked
+    stacked_grid_weights = np.stack([o[6] for o in observables])
+
+    print(stacked_grid_weights.shape)
+
+    msm_v3_pops_all = mtd_estimators.MSM_v3(stacked_transitions, config_binner.binbounds, stacked_grid_weights, propagator.system, bincenters, propagator.kT)
+
+    return (x, e, w, cb, b, propagator, observables, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_mtd, eqp_msm_weighted, msm_v3_pops_all), cumulative_aggregate_time >= aggregate_simulation_limit
 
 
 ########################################  MAIN SAMPLER CLASS  ########################################
@@ -163,11 +174,13 @@ def sampler_we_mtd(system_args, resource_args, bin_args, sampler_params):
     b0 = binner.bin(cb0, e0)
     #prop_out_0 = [1 for element in range(walkers_per_bin)]
 
-    cumulative_observables0 = []  #list of lists; each sublist contains the observables calculated at each WE round
+    init_grid_weights = grid.grid_weights(kT)
+
+    cumulative_observables0 = [([],[],[],[],[],[], init_grid_weights, 0)]  #list of lists; each sublist contains the observables calculated at each WE round
 
     #pack the initial state and parameters and run dynamics
     initial_state = (x0, e0, w0, cb0, b0, propagator0, cumulative_observables0, 0, 0) #the final 0 is the initial aggregate simulation time
-    params = (weighted_ensemble_v2.split_merge, config_binner, ensemble_classifier, binner, weighted_ensemble_v2.calc_observables_1, n_rounds_per_timepoint, walkers_per_bin, max_actual_aggregate_time)
+    params = (weighted_ensemble_v2.split_merge, config_binner, bincenters, ensemble_classifier, binner, weighted_ensemble_v2.calc_observables_1, n_rounds_per_timepoint, walkers_per_bin, max_actual_aggregate_time)
     time_x_observables = utility_v1.run_for_n_timepoints(we_mtd_histogram, params, initial_state, n_timepoints)
 
     #effectively transpose the list of lists so the first axis is observable type rather than time
@@ -178,6 +191,6 @@ def sampler_we_mtd(system_args, resource_args, bin_args, sampler_params):
     print(f"aggregate simulation time: {final_aggregate_time} steps")
     print(f"aggregate number of walkers = number of data points saved = {final_aggregate_time/min_communication_interval} at {min_communication_interval}-step intervals")
 
-    estimate_names = ["weighted msm", "grid + histogram"] #["histogram", "msm", "weighted msm", "grid_masked", "grid + histogram"]#, "grid + histogram + we"]
+    estimate_names = ["weighted histogram", "weighted msm", "franken MSM"] #["histogram", "msm", "weighted msm", "grid_masked", "grid + histogram"]#, "grid + histogram + we"]
 
     return observables_x_time, estimate_names

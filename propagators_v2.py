@@ -117,10 +117,12 @@ def propagate_mtd_save1(system, kT, trj_coords, timestep, nsteps, grid, weights)
     for step in range(nsteps):
         trj_coords += D/kT * (system.F(trj_coords) + grid.compute_forces(trj_coords)) * timestep + np.sqrt(2*D*timestep)*np.random.normal(size=nd)
 
+    w_grid = grid.grid_weights(kT)
+
     #calculate weights of final coordinates
     w_after = grid.weights(trj_coords, kT)
 
     #Update grid. Each walker deposits a gaussian of height proportional to its weight.
     grid.update2(trj_coords, weights)
 
-    return trj_coords, (w_before, w_after)
+    return trj_coords, (w_before, w_after, w_grid)
