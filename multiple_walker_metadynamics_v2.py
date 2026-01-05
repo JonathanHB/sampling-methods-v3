@@ -35,8 +35,8 @@ def parallel_trj_histogram_mtd(state, params):
     weights = np.concatenate((weights, new_weights), axis = 0)
     weights_before = np.concatenate((weights_before, new_weights_before), axis = 0)
     grid_weights = np.concatenate((grid_weights, new_grid_weights), axis = 0)
-    print("grid!")
-    print(grid_weights.shape)
+    #print("grid!")
+    #print(grid_weights.shape)
 
     total_mtd_weights = np.sum(np.sqrt(np.multiply(weights, weights_before)), axis=1) #np.sum(weights_before, axis=1) + np.sum(weights, axis=1)
 
@@ -586,7 +586,7 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
     #but without the data type/structure requirement of a numpy array
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
 
-    observable_names = ["weighted histogram", "count-reweighted MSM", "franken MSM"]
+    observable_names = ["MWM: weighted histogram", "MWM: count-reweighted MSM", "MWM: franken MSM"]
 
     return observables_x_time, observable_names
 

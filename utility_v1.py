@@ -64,10 +64,12 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
         #look at convergence of each observable
         for oi, observable in enumerate(observables_over_time[2:]):
 
-            energies = -kT*np.log(observable)
+            #print(observable)
+            observable_sampled = [o for o in observable if o is not None]
+            energies_sampled = -kT*np.log(observable_sampled)
             savefilename = f"figures/{sampling_method_name}-{observable_names[oi]}-landscape-rep-{bi}.png"
 
-            visualization_v1.plot_landscape_estimate(bincenters, energies, true_energies, observable_names[oi], xrange = (-22,20), yrange = (-5,25), savefilename=savefilename)
+            visualization_v1.plot_landscape_estimate(bincenters, energies_sampled, true_energies, observable_names[oi], xrange = (-22,20), yrange = (-5,25), savefilename=savefilename)
 
             RMS_energy_errors = []
             coverages = [] # this is the fraction of PC space within bin_width/2 of a sampled configuration
@@ -75,6 +77,11 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
             #calculate landscape coverage and energy error at each timepoint
             for ti, populations in enumerate(observable):
             
+                if populations is None:
+                    RMS_energy_errors.append(-1)
+                    coverages.append(-1)
+                    continue
+
                 energies = -kT*np.log(populations)
                 RMS_energy_error = np.sqrt(np.mean([(e-te)**2 for e, te, p in zip(energies, true_energies, populations) if p > 0]))
                 RMS_energy_errors.append(RMS_energy_error)
@@ -129,8 +136,8 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
         max_t_round = time_trj_lengths.index(max(time_trj_lengths))
 
         for t in range(999):
-            coverages = [coverage_trjs[oi][bi][t] for bi in range(n_bootstrap) if len(coverage_trjs[oi][bi])>t]
-            errors = [error_trjs[oi][bi][t] for bi in range(n_bootstrap) if len(error_trjs[oi][bi])>t]
+            coverages = [coverage_trjs[oi][bi][t] for bi in range(n_bootstrap) if len(coverage_trjs[oi][bi])>t and coverage_trjs[oi][bi][t] != -1]
+            errors = [error_trjs[oi][bi][t] for bi in range(n_bootstrap) if len(error_trjs[oi][bi])>t and error_trjs[oi][bi][t] != -1]
 
             if len(coverages) == n_bootstrap:
                 bs_times_.append(mol_time_trjs[oi][max_t_round][t])

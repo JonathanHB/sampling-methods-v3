@@ -947,7 +947,12 @@ def MSM_v3(transitions, binbounds, grid_weights, system, bincenters, kT):
     #    fe_shifts = np.zeros(dg_est.shape[0])
     #    print("warning: no shifts required or no overlaps detected")
 
-    fe_shifts = align_free_energy_offsets(deltaG_matrix, landscape_comparison_weights, gauge="zero")
+    try:
+        fe_shifts = align_free_energy_offsets(deltaG_matrix, landscape_comparison_weights, gauge="zero")
+    except:
+        plt.imshow(landscape_comparison_weights)
+        plt.show()
+        return None #np.ones(n_states)/n_states
     #minimize_weighted_G2(deltaG_matrix, landscape_comparison_weights) #method written by chatGPT
     # print(fe_shifts)
     # plt.hist(fe_shifts)

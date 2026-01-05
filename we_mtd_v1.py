@@ -112,7 +112,7 @@ def we_mtd_histogram(state, params):
     stacked_transitions = [o[2].transpose() for o in observables[1:]] #the number of transitions is not constant so these cannot be stacked
     stacked_grid_weights = np.stack([o[6] for o in observables])
 
-    print(stacked_grid_weights.shape)
+    #print(stacked_grid_weights.shape)
 
     msm_v3_pops_all = mtd_estimators.MSM_v3(stacked_transitions, config_binner.binbounds, stacked_grid_weights, propagator.system, bincenters, propagator.kT)
 
@@ -191,6 +191,6 @@ def sampler_we_mtd(system_args, resource_args, bin_args, sampler_params):
     print(f"aggregate simulation time: {final_aggregate_time} steps")
     print(f"aggregate number of walkers = number of data points saved = {final_aggregate_time/min_communication_interval} at {min_communication_interval}-step intervals")
 
-    estimate_names = ["weighted histogram", "weighted msm", "franken MSM"] #["histogram", "msm", "weighted msm", "grid_masked", "grid + histogram"]#, "grid + histogram + we"]
+    estimate_names = ["MWM-WE: weighted histogram", "MWM-WE: weighted msm", "MWM-WE: franken MSM"] #["histogram", "msm", "weighted msm", "grid_masked", "grid + histogram"]#, "grid + histogram + we"]
 
     return observables_x_time, estimate_names
