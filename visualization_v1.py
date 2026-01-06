@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 def plot_landscape_estimate(bincenters, est_populations, true_populations, title, xrange, yrange, savefilename=""):
     
     #plt.figure(dpi=300)
-    
+    plt.clf()
     for i, esp in enumerate(est_populations):
         #plt.plot(bincenters, esp, color = str(0.8 - 0.6*i/len(est_populations))) #gray scale
         fade_rg = 0.8 - 0.8*i/len(est_populations)
@@ -19,10 +19,10 @@ def plot_landscape_estimate(bincenters, est_populations, true_populations, title
     plt.xlim(xrange)
     plt.ylim(yrange)
 
-    #if savefilename!="":
-    #    plt.savefig(savefilename, format="png", dpi=600)
+    if savefilename!="":
+        plt.savefig(savefilename, format="png", dpi=600)
 
-    plt.show()
+    #plt.show()
 
 
 def plot_landscape_estimates(le, observables_we, bincenters, kT, true_populations, true_energies, molecular_time_limit, aggregate_simulation_limit, min_communication_interval):

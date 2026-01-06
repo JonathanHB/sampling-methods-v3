@@ -400,7 +400,7 @@ def we_histogram_msm(state, params):
     aggregate_transitions = np.concatenate([o[2] for o in observables], axis = 1).transpose()
     eqp_msm = MSM_methods.transitions_to_eq_probs_v2(aggregate_transitions, config_binner.n_bins, show_TPM=False)
 
-    return (x, e, w, cb, b, propagator, observables, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, eqp_msm, est_bin_pops), cumulative_aggregate_time >= aggregate_simulation_limit
+    return (x, e, w, cb, b, propagator, observables, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, eqp_msm), cumulative_aggregate_time >= aggregate_simulation_limit  #, est_bin_pops
 
 
 ############################ MAIN SAMPLER FUNCTION ############################
@@ -463,7 +463,7 @@ def sampler_we(system_args, resource_args, bin_args, sampler_params):
     print(f"aggregate simulation time: {final_aggregate_time} steps")
     print(f"aggregate number of walkers = number of data points saved = {final_aggregate_time/min_communication_interval} at {min_communication_interval}-step intervals")
 
-    observable_names = ["msm", "histogram"]
+    observable_names = ["WE: msm"]#, "histogram"]
 
     return observables_x_time, observable_names
 

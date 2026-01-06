@@ -109,14 +109,15 @@ def we_mtd_histogram(state, params):
 
     #----------------------------franken MSM----------------------------#
 
-    stacked_transitions = [o[2].transpose() for o in observables[1:]] #the number of transitions is not constant so these cannot be stacked
-    stacked_grid_weights = np.stack([o[6] for o in observables])
+    # stacked_transitions = [o[2].transpose() for o in observables[1:]] #the number of transitions is not constant so these cannot be stacked
+    # stacked_grid_weights = np.stack([o[6] for o in observables])
 
-    #print(stacked_grid_weights.shape)
+    # #print(stacked_grid_weights.shape)
 
-    msm_v3_pops_all = mtd_estimators.MSM_v3(stacked_transitions, config_binner.binbounds, stacked_grid_weights, propagator.system, bincenters, propagator.kT)
+    # msm_v3_pops_all = mtd_estimators.MSM_v3(stacked_transitions, config_binner.binbounds, stacked_grid_weights, propagator.system, bincenters, propagator.kT)
 
-    return (x, e, w, cb, b, propagator, observables, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_mtd, eqp_msm_weighted, msm_v3_pops_all), cumulative_aggregate_time >= aggregate_simulation_limit
+    return (x, e, w, cb, b, propagator, observables, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_mtd), cumulative_aggregate_time >= aggregate_simulation_limit  #, msm_v3_pops_all
+    #eqp_msm_weighted, 
 
 
 ########################################  MAIN SAMPLER CLASS  ########################################
@@ -191,6 +192,6 @@ def sampler_we_mtd(system_args, resource_args, bin_args, sampler_params):
     print(f"aggregate simulation time: {final_aggregate_time} steps")
     print(f"aggregate number of walkers = number of data points saved = {final_aggregate_time/min_communication_interval} at {min_communication_interval}-step intervals")
 
-    estimate_names = ["MWM-WE: weighted histogram", "MWM-WE: weighted msm", "MWM-WE: franken MSM"] #["histogram", "msm", "weighted msm", "grid_masked", "grid + histogram"]#, "grid + histogram + we"]
+    estimate_names = ["MWM-WE: weighted histogram"] #, "MWM-WE: P-reweight MSM" ["histogram", "msm", "MWM-WE: weighted msm", "weighted msm", "grid_masked", "grid + histogram"]#, "grid + histogram + we"]
 
     return observables_x_time, estimate_names

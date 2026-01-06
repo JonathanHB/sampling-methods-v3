@@ -33,12 +33,30 @@ import matplotlib.pyplot as plt
 
 import visualization_v1
 
-def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootstrap, system_args, resource_args, bin_args, sampler, sampler_params, true_values):
+def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootstrap, system_args, resource_args, bin_args, sampler, sampler_params, true_values, well_depth):
     
+    plot_outputs = True
+
     system, kT, dt = system_args
     n_parallel, molecular_time_limit, min_communication_interval, min_frame_save_interval = resource_args
     n_timepoints, n_analysis_bins, binbounds, bincenters = bin_args
     true_populations, true_energies = true_values
+
+    #find the lowest energy bins containing 99% of the equilibrium probability
+    cumulative_true_pop = 0
+    lowest_90pct_states = np.zeros(len(bincenters))
+    for pa in np.flip(np.argsort(true_populations, )):
+        if cumulative_true_pop < 0.99:
+            #print(true_populations[pa])
+            lowest_90pct_states[pa] = 1
+            cumulative_true_pop += true_populations[pa]
+        else:
+            break
+
+    # print(min(lowest_90pct_states))
+
+    # plt.plot(lowest_90pct_states)
+    # plt.show()
 
     #bootstrap to estimate convergence times
     #TODO this is not general; each sampler should have a n_methods variable that the bootstrapper can use to make a 2d array
@@ -48,11 +66,16 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
 
     convergence_times = np.zeros((n_methods,n_bootstrap))
 
+    agg_time_trjs = [[[] for _ in range(n_bootstrap)] for __ in range(n_methods)]
     mol_time_trjs = [[[] for _ in range(n_bootstrap)] for __ in range(n_methods)]
     coverage_trjs = [[[] for _ in range(n_bootstrap)] for __ in range(n_methods)]
     error_trjs = [[[] for _ in range(n_bootstrap)] for __ in range(n_methods)]
+    error_trjs_le = [[[] for _ in range(n_bootstrap)] for __ in range(n_methods)]
 
     #convergence_times_MSM = np.zeros(n_bootstrap)
+
+    # observables_over_time_all = []
+    # observable_names_all = []
 
     for bi in range(n_bootstrap):
         print(f"bootstrap round {bi+1}\n")
@@ -61,17 +84,25 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
         molecular_times = observables_over_time[1]
         aggregate_times = observables_over_time[0]
 
-        #look at convergence of each observable
+    #     observables_over_time_all.append(observables_over_time)
+    #     observable_names_all.append(observable_names)
+
+    # #look at convergence of each observable
+    # for oi in range(len(observables_over_time_all[0][2:])):
+        #for bi in range(n_bootstrap):
+
         for oi, observable in enumerate(observables_over_time[2:]):
 
             #print(observable)
             observable_sampled = [o for o in observable if o is not None]
             energies_sampled = -kT*np.log(observable_sampled)
-            savefilename = f"figures/{sampling_method_name}-{observable_names[oi]}-landscape-rep-{bi}.png"
-
-            visualization_v1.plot_landscape_estimate(bincenters, energies_sampled, true_energies, observable_names[oi], xrange = (-22,20), yrange = (-5,25), savefilename=savefilename)
+            savefilename = f"figures/010526-well-{well_depth}-{sampling_method_name}-{observable_names[oi]}-landscape-rep-{bi}.png"
+            
+            if plot_outputs:
+                visualization_v1.plot_landscape_estimate(bincenters, energies_sampled, true_energies, observable_names[oi], xrange = (-30,30), yrange = (-5,25), savefilename=savefilename)
 
             RMS_energy_errors = []
+            RMS_energy_errors_le = []
             coverages = [] # this is the fraction of PC space within bin_width/2 of a sampled configuration
 
             #calculate landscape coverage and energy error at each timepoint
@@ -79,41 +110,49 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
             
                 if populations is None:
                     RMS_energy_errors.append(-1)
-                    coverages.append(-1)
+                    coverages.append(0)
                     continue
 
                 energies = -kT*np.log(populations)
                 RMS_energy_error = np.sqrt(np.mean([(e-te)**2 for e, te, p in zip(energies, true_energies, populations) if p > 0]))
                 RMS_energy_errors.append(RMS_energy_error)
 
+                RMS_energy_error_le = np.sqrt(np.mean([(e-te)**2 for e, te, p in zip(energies, true_energies, np.multiply(populations, lowest_90pct_states)) if p > 0]))
+                RMS_energy_errors_le.append(RMS_energy_error_le)
+
                 coverage = sum([1 if p > 0 else 0 for p in populations])/len(populations)
                 coverages.append(coverage)
                 
                 if convergence_times[oi,bi] == 0 and coverage >= coverage_thresh and RMS_energy_error <= RMS_energy_error_thresh:
                     convergence_times[oi,bi] = molecular_times[ti]
-            
+
+            agg_time_trjs[oi][bi] = aggregate_times
             mol_time_trjs[oi][bi] = molecular_times
             coverage_trjs[oi][bi] = coverages
             error_trjs[oi][bi] = RMS_energy_errors
+            error_trjs_le[oi][bi] = RMS_energy_errors_le
 
+            if False:
+                plt.plot(molecular_times, RMS_energy_errors)
+                plt.plot(molecular_times, coverages)
+                plt.legend(["RMS energy error (kT)", "fractional landscape coverage"])
+                plt.xlabel("molecular time")
+                plt.ylabel("energy error (kT) or\nlandscape coverage (dimensionless)")
+                plt.title(observable_names[oi])
+                plt.ylim(0,2)
+                plt.xlim(0, molecular_time_limit)
+                #plt.savefig(f"figures/{observable_names[oi]}-landscape-estimates.png", format="png", dpi=600)
+                plt.show()
 
-            plt.plot(molecular_times, RMS_energy_errors)
-            plt.plot(molecular_times, coverages)
-            plt.legend(["RMS energy error (kT)", "fractional landscape coverage"])
-            plt.xlabel("molecular time")
-            plt.ylabel("energy error (kT) or\nlandscape coverage (dimensionless)")
-            plt.title(observable_names[oi])
-            plt.ylim(0,2)
-            plt.xlim(0, molecular_time_limit)
-            plt.show()
-
-            plot_agg_vs_mol_t = False
+        if bi == 0:
+            plot_agg_vs_mol_t = True
             if plot_agg_vs_mol_t:
                 plt.plot(molecular_times, aggregate_times)
                 plt.xlabel("molecular time")
                 plt.ylabel("aggregate time")
                 plt.title(observable_names[oi])
-                plt.show()
+                plt.savefig(f"figures/010526-{sampling_method_name}-landscape.png")
+                #plt.show()
 
 
     bs_times = [[] for _ in range(n_methods)]
@@ -124,6 +163,9 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
     bs_mean_error = [[] for _ in range(n_methods)]
     bs_std_error = [[] for _ in range(n_methods)]
 
+    bs_mean_error_le = [[] for _ in range(n_methods)]
+    bs_std_error_le = [[] for _ in range(n_methods)]
+
     for oi in range(n_methods):
 
         bs_times_ = []
@@ -131,6 +173,11 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
         bs_std_coverage_ = []
         bs_mean_error_ = []
         bs_std_error_ = []
+        bs_mean_error_le_ = []
+        bs_std_error_le_ = []
+        # onedatapoint_times_ = []
+        # onedatapoint_mean_coverage_ = []
+        # onedatapoint_mean_error_ = []
 
         time_trj_lengths = [len(mol_time_trjs[oi][bi]) for bi in range(n_bootstrap)]
         max_t_round = time_trj_lengths.index(max(time_trj_lengths))
@@ -138,8 +185,9 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
         for t in range(999):
             coverages = [coverage_trjs[oi][bi][t] for bi in range(n_bootstrap) if len(coverage_trjs[oi][bi])>t and coverage_trjs[oi][bi][t] != -1]
             errors = [error_trjs[oi][bi][t] for bi in range(n_bootstrap) if len(error_trjs[oi][bi])>t and error_trjs[oi][bi][t] != -1]
+            errors_le = [error_trjs_le[oi][bi][t] for bi in range(n_bootstrap) if len(error_trjs_le[oi][bi])>t and error_trjs_le[oi][bi][t] != -1]
 
-            if len(coverages) == n_bootstrap:
+            if len(coverages) == n_bootstrap and len(errors) == n_bootstrap:
                 bs_times_.append(mol_time_trjs[oi][max_t_round][t])
 
                 bs_mean_coverage_.append(np.mean(coverages))
@@ -147,8 +195,19 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
                 
                 bs_mean_error_.append(np.mean(errors))
                 bs_std_error_.append(np.std(errors))
-            else:
-                break
+
+                bs_mean_error_le_.append(np.mean(errors_le))
+                bs_std_error_le_.append(np.std(errors_le))
+
+            # elif len(coverages) == 1 and len(errors) == 1:
+            #     bs_times_.append(mol_time_trjs[oi][max_t_round][t])
+
+            #     bs_mean_coverage_.append(np.mean(coverages))
+            #     bs_std_coverage_.append(0)
+
+            #     bs_mean_error_.append(np.mean(errors))
+            #     bs_std_error_.append(0)
+
 
         # print(bs_times_, bs_mean_coverage_, bs_std_coverage_)
 
@@ -161,13 +220,16 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
         # print(bs_times)
         # print(len(bs_times))
         # print(oi)
-
+        #print(bs_times_)
+        
         bs_times[oi] = bs_times_
 
         bs_mean_coverage[oi] = bs_mean_coverage_
         bs_std_coverage[oi] = bs_std_coverage_
         bs_mean_error[oi] = bs_mean_error_
         bs_std_error[oi] = bs_std_error_
+        bs_mean_error_le[oi] = bs_mean_error_le_
+        bs_std_error_le[oi] = bs_std_error_le_
 
         # for bi in range(n_bootstrap):
         #     plt.plot(mol_time_trjs[oi][bi], coverage_trjs[oi][bi])
@@ -190,4 +252,4 @@ def time_to_coverage_accuracy(coverage_thresh, RMS_energy_error_thresh, n_bootst
     #     print(np.mean(c))
     #     print(np.std(c))
 
-    return convergence_times, bs_times, bs_mean_coverage, bs_std_coverage, bs_mean_error, bs_std_error, observable_names
+    return convergence_times, bs_times, bs_mean_coverage, bs_std_coverage, bs_mean_error, bs_std_error, bs_mean_error_le, bs_std_error_le, observable_names, (agg_time_trjs, mol_time_trjs, error_trjs, error_trjs_le, coverage_trjs)

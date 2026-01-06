@@ -191,6 +191,36 @@ class deep_sine_well(potential_well_1d):
 
 
 #a system of several wells of similar energies constructed using a sinusoidal and a quartic potential
+class variable_sine_well(potential_well_1d):
+    #MFPT(10 frame save frequency) = ~70000 steps
+
+    def potential(self, x):
+        return self.scale_height*(0.0001*x**4 + 5*np.cos(x) + x/4)
+        
+    def F(self, x):
+        return self.scale_height*(0.0001*-4*x**3 + 5*np.sin(x) - 1/4)
+    
+    def macro_class(self, x):
+        thr = 2*np.pi
+        if x[0] < -thr:
+            return 0
+        elif x[0] > thr:
+            return 1
+        else:
+            return -1
+        
+    def __init__(self, scale_height):
+        self.diffusion_coefficient = 10
+        self.n_macrostates = 2
+        self.standard_init_coord = [-3*np.pi]
+        self.standard_analysis_range = [[-22],[20]]
+        self.start_from_index = False
+        self.scale_height = scale_height
+        super().__init__(self.potential, self.macro_class, self.standard_analysis_range)
+
+
+#a flat bottomed well with very steep walls ascending as x^6
+#for testing whether sampling is limited by diffusion or energy barriers
 class hexic_well(potential_well_1d):
     #MFPT(10 frame save frequency) = ~70000 steps
 

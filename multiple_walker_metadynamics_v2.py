@@ -127,9 +127,12 @@ def parallel_trj_histogram_mtd(state, params):
     transitions = np.stack((trjs_ditigized[:-1], trjs_ditigized[1:])).transpose(1,2,0)
 
     n_states = len(binbounds)+1
+    n_rounds = len(trjs)-1
+    transition_counts = np.zeros((n_rounds, n_states, n_states))
 
     #all reweighted transition probability matrices, for averaging
-    Pu_all = [] 
+    Puv_rw_all = [] 
+    #column_weights_by_round = np.zeros((len(trjs)-1, n_states))
 
     #eigenvalues of each normalized Pu, for failed normalization scheme
     #eigenvalues = []
@@ -138,12 +141,11 @@ def parallel_trj_histogram_mtd(state, params):
     sum_vs_time = []
 
     #calculate reweighted TPMs for every round
-    for t in range(len(trjs)-1):
+    for t in range(n_rounds):
 
         #count transitions
-        transition_counts = np.zeros((n_states, n_states))
         for tr in transitions[t]:
-            transition_counts[tr[1]][tr[0]] += 1
+            transition_counts[t, tr[1], tr[0]] += 1
         
         #symmetrize matrix; does not have much effect
         #transition_counts_s = (transition_counts+transition_counts.transpose())/2
@@ -152,13 +154,15 @@ def parallel_trj_histogram_mtd(state, params):
         #each column (aka each feature in the documentation) is normalized so that its entries add to 1, 
         # so that the probability associated with each element of X(t) is preserved 
         # (though not all at one index) when X(t) is multiplied by the TPM
-        tpm = normalize(transition_counts, axis=0, norm='l1')
+        Puv = normalize(transition_counts[t], axis=0, norm='l1')
+
+        # column_weights_by_round[t] = np.sum(transition_counts, axis=0)
 
         #project vectors from unbiased basis into the basis with the metadynamics bias V
         #[:, np.newaxis] makes a row vector into a column vector
         reweight_matrix = np.outer(grid_weights[t], np.reciprocal(grid_weights[t]))
 
-        Pu = np.multiply(reweight_matrix, tpm)
+        Puv_rw = np.multiply(reweight_matrix, Puv)
 
         #this does not improve performance since most weights are small and a few large ones dominate the average
         #eigenvalues.append(1/np.sum(Puv))
@@ -174,11 +178,11 @@ def parallel_trj_histogram_mtd(state, params):
             plt.plot(grid_weights[t])
             plt.show()
 
-        Pu_all.append(Pu)
+        Puv_rw_all.append(Puv_rw)
 
-        sum_vs_time.append(np.sum(Pu))
+        sum_vs_time.append(np.sum(Puv_rw))
 
-    puv_arr = np.array(Pu_all)
+    Puv_rw_all = np.array(Puv_rw_all)
 
     #VVVVVVVVVVVVVVVVVVVVVVVVVV THIS IS MATHEMATICALLY UNSOUND VVVVVVVVVVVVVVVVVVVVVVVVVV
     #TODO weight this mean by the number of counts in each column (different columns are weighted differently) 
@@ -187,11 +191,43 @@ def parallel_trj_histogram_mtd(state, params):
     # when building a normal MSM this is not an issue because column normalization means that several rounds in which there are 
     # no transitions out of a state do not affect the probabilities from that state relative to other states (columns)
     # whereas when averaging here it lowers all the outgoing probabilities
-    # and this can't be fixed by normalization because the matrix called Puv here (really Pu) is not supposed to be normalized
+    # and this can't be fixed by normalization because Puv_rw is not supposed to be normalized
     #^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    puv_mean = np.mean(puv_arr, axis=0)
+    Puv_rw_mean = np.mean(Puv_rw_all, axis=0)
 
+    Puv_rw_mean_weighted = np.zeros((n_states, n_states))
+
+    for s1 in range(n_states):
+        #for s2 in range(n_states):
+
+        # print(Puv_rw_all[:,:,s].shape)
+        # print(column_weights_by_round[:,s].shape)
+        if np.sum(transition_counts[:,:,s1]) > 0:
+        #     Puv_rw_mean_weighted[s1,s2] = 0
+        # else:
+            column_sampled_times = np.where(np.sum(transition_counts[:,:,s1], axis = 1)>0)[0]
+            first_round_sampled = min(column_sampled_times)
+            #print(first_round_sampled)
+
+            sample_window_weight = n_rounds/(n_rounds-first_round_sampled)
+            #print(sample_window_weight)
+
+            Puv_rw_mean_weighted[:,s1] = Puv_rw_mean[:,s1]*sample_window_weight
+            #col_nonzero = np.where(transition_counts[:,s1,s2]>0, 1, 0)
+            #Puv_mean_weighted[s1,s2] = np.average(Puv_rw_all[:,s1,s2], weights=col_nonzero, axis=0)
+            # plt.imshow(Puv_rw_all[:,:,s])
+            # plt.show()
+
+
+
+    #plt.imshow(np.where(column_weights_by_round>0, 1, 0))
+    #plt.show()
+
+    # plt.imshow(Puv_rw_mean_weighted)
+    # plt.show()
+    # plt.imshow(Puv_rw_mean)
+    # plt.show()
     #calculate first eigenvector corresponding to equilibrium probability
 
     #for failed normalization scheme (see above)
@@ -199,16 +235,16 @@ def parallel_trj_histogram_mtd(state, params):
     #print(f"eigenvalue: {eigenvalue}")
     #pops_msm_v2 = auxilliary_MSM_methods.tpm_2_eqprobs(puv_mean, eigenvalue)
 
-    # pops_msm_v2 = MSM_methods.tpm_2_eqprobs(puv_mean, silent=True)
-    # pops_msm_v2 /= np.sum(pops_msm_v2)
-    pops_msm_v2 = np.zeros(len(puv_mean))
+    ###pops_msm_v2 = MSM_methods.tpm_2_eqprobs(Puv_rw_mean_weighted, silent=True)
+    ###pops_msm_v2 /= np.sum(pops_msm_v2)
+    #pops_msm_v2 = np.zeros(len(puv_mean))
 
     t5 = time.time()
     # print(f"MSM 2: {t5-t4}")
 
-    ##################################################################################################
-    #----------------------------MSM-based population estimation v3----------------------------------#
-    ##################################################################################################
+    # ##################################################################################################
+    # #----------------------------MSM-based population estimation v3----------------------------------#
+    # ##################################################################################################
 
     #this will have to be replaced with a binning function that works for higher dimensions
     trjs_ditigized = np.digitize(trjs, binbounds).reshape((trjs.shape[0], trjs.shape[1])) 
@@ -519,7 +555,7 @@ def parallel_trj_histogram_mtd(state, params):
     cumulative_molecular_time += nsegs*save_period
     cumulative_aggregate_time += n_parallel*nsegs*save_period
 
-    return (trjs, weights, weights_before, grid_weights, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, pops_msm, msm_v3_pops_all), False #pops_grid_uncorrected, pops_hist, pops_grid, pops_msm_v2, pops_grid_masked, 
+    return (trjs, weights, weights_before, grid_weights, grid, cumulative_aggregate_time, cumulative_molecular_time), (cumulative_aggregate_time, cumulative_molecular_time, pops_hist_weighted, msm_v3_pops_all), False #, msm_v3_pops_all, pops_msm, pops_grid_uncorrected, pops_hist, pops_grid, pops_msm_v2, pops_grid_masked, 
 
 
 
@@ -553,7 +589,7 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
     print(f"running {n_parallel} parallel multiple walker metadynamics simulations")
     print(f"molecular time: {actual_molecular_time} steps;  aggregate time: {actual_aggregate_time} steps")
     print(f"data points saved: {nsegs*n_timepoints*n_parallel} at {save_period}-step intervals")
-    print(f"gaussians of height {rate} are added every {save_period} steps")
+    print(f"gaussians of height {rate} kT are added every {save_period} steps")
 
     # #determine number of parallel simulations and steps per simulation
     # n_parallel = int(round(aggregate_simulation_limit/molecular_time_limit))
@@ -586,7 +622,7 @@ def sampler_parallel_hist_mtd(system_args, resource_args, bin_args, sampler_para
     #but without the data type/structure requirement of a numpy array
     observables_x_time = [list(row) for row in zip(*time_x_observables)]
 
-    observable_names = ["MWM: weighted histogram", "MWM: count-reweighted MSM", "MWM: franken MSM"]
+    observable_names = ["MWM: weighted histogram", "MWM: P-reweight MSM"] #"Puv_msm"] #, "MWM: count-reweighted MSM", 
 
     return observables_x_time, observable_names
 

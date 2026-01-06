@@ -602,7 +602,10 @@ def MSM_v4(trjs, binbounds, grid_weights, system, bincenters, kT):
 #----------------------------MSM-based population estimation v3----------------------------------#
 ##################################################################################################
 
+
 def MSM_v3(transitions, binbounds, grid_weights, system, bincenters, kT):
+
+    plot_outputs = False
 
     #print([tr.shape for tr in transitions])
 
@@ -872,6 +875,9 @@ def MSM_v3(transitions, binbounds, grid_weights, system, bincenters, kT):
 
     deltaG_matrix = np.divide(pc2_mat, pc1_mat, out=np.zeros_like(pc2_mat), where=pc1_mat!=0)
 
+    # print(np.any(np.isinf(deltaG_matrix)))
+    # print(np.max(deltaG_matrix))
+
     # for p in prob_est_all:
     #     plt.plot(p)
     # plt.show()
@@ -901,8 +907,11 @@ def MSM_v3(transitions, binbounds, grid_weights, system, bincenters, kT):
                     #I have no theoretical justification for this specific weighting scheme
                     landscape_comparison_weights[i,j] = n1*n2*sum(c12) #weight by number of matrices used to calculate each estimate and number of overlapping states
                     #not including n1 and n2 made things worse anecdotally
+    with np.errstate(divide = 'ignore'):
+        deltaG_matrix = np.nan_to_num(-kT*np.log(deltaG_matrix), nan=0.0, posinf=0.0, neginf=0.0)
 
-    deltaG_matrix = np.nan_to_num(-kT*np.log(deltaG_matrix), nan=0.0, posinf=0.0, neginf=0.0)
+    #np.where(deltaG_matrix == 0, 0, -kT*np.log(deltaG_matrix)) # also throws warnings for div by 0
+
 
     # print(deltaG_matrix)
     # plt.imshow(deltaG_matrix)
@@ -950,8 +959,9 @@ def MSM_v3(transitions, binbounds, grid_weights, system, bincenters, kT):
     try:
         fe_shifts = align_free_energy_offsets(deltaG_matrix, landscape_comparison_weights, gauge="zero")
     except:
-        plt.imshow(landscape_comparison_weights)
-        plt.show()
+        if plot_outputs:
+            plt.imshow(landscape_comparison_weights)
+            plt.show()
         return None #np.ones(n_states)/n_states
     #minimize_weighted_G2(deltaG_matrix, landscape_comparison_weights) #method written by chatGPT
     # print(fe_shifts)
@@ -996,19 +1006,19 @@ def MSM_v3(transitions, binbounds, grid_weights, system, bincenters, kT):
     print(f"MSM 3, part 4: final assembly: {t9-t8}")
 
     #print(deltaG_average)
-
-    for gi in deltaG_shifted:
-        plt.plot(gi)
+    if plot_outputs:
+        for gi in deltaG_shifted:
+            plt.plot(gi)
     
-    plt.plot(states_sampled, deltaG_average_sampled+kT*np.log(z), linewidth=2, color='black', zorder = 999999)
-    
-    #plt.plot(deltaG_shifted[-1], linewidth=2, color='grey', linestyle="dashed", zorder = 99999)
+        plt.plot(states_sampled, deltaG_average_sampled+kT*np.log(z), linewidth=2, color='black', zorder = 999999)
+        
+        #plt.plot(deltaG_shifted[-1], linewidth=2, color='grey', linestyle="dashed", zorder = 99999)
 
-    true_populations, true_energies = system.normalized_pops_energies(kT, bincenters)
+        true_populations, true_energies = system.normalized_pops_energies(kT, bincenters)
 
-    plt.plot(-kT*np.log(true_populations), linewidth=2, color='red', zorder = 999998)
+        plt.plot(-kT*np.log(true_populations), linewidth=2, color='red', zorder = 999998)
 
-    plt.show()
+        plt.show()
 
     #sys.exit(0)
 
